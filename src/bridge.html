@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';" />
+  <title>Think A.M. — Ponte Figma local</title>
+  <link rel="stylesheet" href="launcher.css" />
+  <link rel="stylesheet" href="bridge.css" />
+</head>
+<body>
+  <main class="shell shell--wide">
+    <header class="brand">
+      <button id="back-btn" class="iconbtn" type="button" title="Voltar">←</button>
+      <div class="brand__mark">✈</div>
+      <div class="brand__text">
+        <strong>Ponte Figma local</strong>
+        <span>Extraia o design context do Figma desktop e envie para gerar</span>
+      </div>
+    </header>
+
+    <!-- Gate: Architect-only, desktop-exclusive -->
+    <section class="card" id="gate" hidden>
+      <div class="status"><span class="dot bad"></span><strong id="gate-title"></strong></div>
+      <p class="hint" id="gate-msg"></p>
+      <button id="gate-cta" class="btn btn--primary btn--wide" type="button"></button>
+    </section>
+
+    <!-- Step 1: connect -->
+    <section class="card" id="connect-card">
+      <div class="field">
+        <label for="mcpUrl">Figma MCP (local)</label>
+        <div class="inline">
+          <input id="mcpUrl" type="url" spellcheck="false" placeholder="http://127.0.0.1:3845/mcp" />
+          <button id="connect-btn" class="btn btn--primary btn--compact" type="button">Conectar</button>
+        </div>
+      </div>
+      <div class="status">
+        <span class="dot" id="mcp-dot"></span>
+        <span id="mcp-text">Não conectado. Abra o Figma desktop e ative o servidor MCP (Dev Mode).</span>
+      </div>
+    </section>
+
+    <!-- Step 2: extract -->
+    <section class="card" id="extract-card" hidden>
+      <div class="field">
+        <label for="tool">Ferramenta MCP</label>
+        <select id="tool"></select>
+      </div>
+      <div class="field">
+        <label for="nodeId">Node ID (opcional — vazio usa a seleção atual do Figma)</label>
+        <input id="nodeId" type="text" spellcheck="false" placeholder="123:456" />
+      </div>
+      <button id="extract-btn" class="btn btn--ghost btn--wide" type="button">Extrair design context</button>
+      <div class="preview" id="preview-wrap" hidden>
+        <div class="preview__head">
+          <span>design-context</span>
+          <button id="copy-btn" class="iconbtn" type="button" title="Copiar">⧉</button>
+        </div>
+        <pre id="preview"><code></code></pre>
+      </div>
+    </section>
+
+    <!-- Step 3: send to generation -->
+    <section class="card" id="send-card" hidden>
+      <div class="field">
+        <label for="projectName">Nome do projeto</label>
+        <input id="projectName" type="text" placeholder="Meu app" />
+      </div>
+      <button id="send-btn" class="btn btn--primary btn--wide" type="button">Enviar para geração (knowledge)</button>
+      <div class="status" id="send-status" hidden>
+        <span class="dot" id="send-dot"></span>
+        <span id="send-text"></span>
+      </div>
+      <p class="hint">Envia o design context extraído localmente para <code>/api/knowledge/design-sources/analyze</code>. O servidor nunca acessa seu Figma local — o client faz a ponte.</p>
+    </section>
+
+    <footer class="foot">
+      <span>Ponte MCP · o servidor não toca seu Figma local</span>
+      <a href="#" id="site-link">tbldr.com.br</a>
+    </footer>
+  </main>
+
+  <script src="bridge.js"></script>
+</body>
+</html>

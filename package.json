@@ -1,0 +1,69 @@
+{
+  "name": "think-am-desktop",
+  "productName": "Think A.M. Builder",
+  "version": "0.1.0",
+  "description": "Desktop client for Think A.M. Builder — log in and talk to the Think A.M. API natively.",
+  "main": "src/main.js",
+  "author": "Think A.M.",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
+    "release:win": "electron-builder --win --publish always",
+    "release:mac": "electron-builder --mac --publish always",
+    "release:linux": "electron-builder --linux --publish always"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "net.thinkam.builder.desktop",
+    "productName": "Think A.M. Builder",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ThinkAM",
+        "repo": "think-am-desktop"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "artifactName": "ThinkAM-Builder-Setup.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "dmg": {
+      "artifactName": "ThinkAM-Builder.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    },
+    "appImage": {
+      "artifactName": "ThinkAM-Builder.${ext}"
+    }
+  }
+}
