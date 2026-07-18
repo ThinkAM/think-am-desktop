@@ -36,7 +36,8 @@
       {
         "provider": "github",
         "owner": "ThinkAM",
-        "repo": "think-am-desktop"
+        "repo": "think-am-desktop",
+        "releaseType": "release"
       }
     ],
     "win": {
