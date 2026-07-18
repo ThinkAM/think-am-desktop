@@ -1,0 +1,43 @@
+name: Release
+
+# Builds installers for all platforms and publishes them to a GitHub Release
+# whenever a version tag (e.g. v0.1.0) is pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: release:win
+          - os: macos-latest
+            script: release:mac
+          - os: ubuntu-latest
+            script: release:linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build and publish installer
+        run: npm run ${{ matrix.script }}
+        env:
+          # electron-builder reads GH_TOKEN to upload assets to the GitHub Release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
