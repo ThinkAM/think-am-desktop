@@ -1,43 +1,75 @@
-name: Release
+name: Build and Release Desktop Client
 
-# Builds installers for all platforms and publishes them to a GitHub Release
-# whenever a version tag (e.g. v0.1.0) is pushed.
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch: {}
+      - 'v*.*.*'
 
-permissions:
-  contents: write
+env:
+  NODE_VERSION: '20.x'
 
 jobs:
   release:
+    name: Build Desktop Client
+    runs-on: ${{ matrix.os }}
+    
     strategy:
-      fail-fast: false
       matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - os: windows-latest
-            script: release:win
+            platform: win
+            artifact: ThinkAM-Builder-Setup.exe
           - os: macos-latest
-            script: release:mac
+            platform: mac
+            artifact: ThinkAM-Builder.dmg
           - os: ubuntu-latest
-            script: release:linux
-    runs-on: ${{ matrix.os }}
+            platform: linux
+            artifact: ThinkAM-Builder.AppImage
+    
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
       - name: Install dependencies
-        run: npm install
-
-      - name: Build and publish installer
-        run: npm run ${{ matrix.script }}
+        run: npm ci
+        
+      - name: Build & Publish (${{ matrix.platform }})
         env:
-          # electron-builder reads GH_TOKEN to upload assets to the GitHub Release.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release:${{ matrix.platform }}
+        
+      - name: Summary
+        run: |
+          echo "✅ ${{ matrix.platform }} build completed!"
+          echo "📦 Platform: ${{ matrix.platform }}"
+          echo "🏷️  Version: ${{ github.ref_name }}"
+          echo "📄 Artifact: ${{ matrix.artifact }}"
+          
+  finalize:
+    name: Mark Release as Latest
+    needs: [release]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Mark as latest
+        uses: softprops/action-gh-release@v1
+        with:
+          make_latest: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Success
+        run: |
+          echo "✅ Release ${{ github.ref_name }} is now marked as LATEST"
+          echo "🌐 Download: https://github.com/ThinkAM/think-am-desktop/releases/latest"
+          echo "📱 Auto-update enabled for desktop clients"
