@@ -226,10 +226,20 @@ ipcMain.handle('auth:login', async (_e, creds) => {
     const res = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      // API expects `loginIdentifier` (email or username), not `email`.
+      body: JSON.stringify({ loginIdentifier: email, password }),
     });
     if (!res.ok) {
-      return { ok: false, status: res.status, error: res.status === 401 ? 'E-mail ou senha inválidos.' : `Falha no login (HTTP ${res.status}).` };
+      const status = res.status;
+      let message = `Falha no login (HTTP ${status}).`;
+      if (status === 401) message = 'E-mail ou senha inválidos.';
+      else {
+        try {
+          const body = await res.json();
+          if (body && body.error) message = body.error;
+        } catch { /* body wasn't JSON, keep default message */ }
+      }
+      return { ok: false, status, error: message };
     }
     const data = await res.json();
     saveAuth({ token: data.token, user: data.user });
