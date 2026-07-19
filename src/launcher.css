@@ -100,6 +100,7 @@ input:focus { outline: none; border-color: var(--cyan-300); }
 }
 .btn--ghost { background: rgba(148, 163, 184, 0.12); color: #e2e8f0; }
 .btn--ghost:hover { background: rgba(148, 163, 184, 0.2); }
+.btn--compact { padding: 8px 12px; font-size: 13px; }
 .btn--primary {
   width: 100%; margin-top: 16px; padding: 14px; font-size: 15px;
   background: linear-gradient(135deg, var(--cyan-400), var(--blue-600)); color: #041019;
@@ -108,6 +109,18 @@ input:focus { outline: none; border-color: var(--cyan-300); }
 .btn--primary:hover { filter: brightness(1.05); }
 .btn--wide { width: 100%; margin-top: 10px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
+
+.advanced { margin-top: 16px; }
+.advanced summary {
+  cursor: pointer; list-style: none; user-select: none;
+  font-size: 13px; font-weight: 700; color: var(--slate-400);
+  padding: 8px 4px; display: flex; align-items: center; gap: 6px;
+}
+.advanced summary::-webkit-details-marker { display: none; }
+.advanced summary::before { content: '▸'; font-size: 11px; }
+.advanced[open] summary::before { content: '▾'; }
+.advanced summary:hover { color: var(--slate-300); }
+.advanced .card { margin-top: 10px; }
 
 .hint { margin-top: 10px; font-size: 12px; color: var(--slate-500); text-align: center; }
 

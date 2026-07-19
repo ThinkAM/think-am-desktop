@@ -17,13 +17,14 @@
       </div>
     </header>
 
-    <section class="hero">
-      <h1>Conecte-se ao seu Builder</h1>
-      <p>Faça login e trabalhe com a API do Think A.M. direto do seu desktop — com sessão persistente e ponte local para o Figma.</p>
-    </section>
+    <!-- Logged out: just the login form. -->
+    <section id="logged-out">
+      <div class="hero">
+        <h1>Conecte-se ao seu Builder</h1>
+        <p>Entre com sua conta Think A.M. Builder para continuar.</p>
+      </div>
 
-    <section class="card" id="account-card">
-      <div id="logged-out">
+      <section class="card">
         <div class="field">
           <label for="email">E-mail</label>
           <input id="email" type="email" spellcheck="false" placeholder="voce@empresa.com" />
@@ -34,8 +35,12 @@
         </div>
         <button id="login-btn" class="btn btn--primary btn--wide" type="button">Entrar</button>
         <p class="hint" id="login-msg"></p>
-      </div>
-      <div id="logged-in" hidden>
+      </section>
+    </section>
+
+    <!-- Logged in: account + single primary action, advanced settings collapsed. -->
+    <section id="logged-in" hidden>
+      <section class="card">
         <div class="account">
           <div class="account__info">
             <strong id="acct-email"></strong>
@@ -44,52 +49,56 @@
           <button id="logout-btn" class="btn btn--ghost btn--compact" type="button">Sair</button>
         </div>
         <p class="hint" id="plan-hint"></p>
-      </div>
-    </section>
 
-    <section class="card">
-      <div class="field">
-        <label>Ambiente</label>
-        <div class="segmented">
-          <button id="env-prod" class="seg active" type="button">Produção</button>
-          <button id="env-custom" class="seg" type="button">Personalizado</button>
-        </div>
-      </div>
+        <button id="open-btn" class="btn btn--primary btn--wide" type="button">
+          Entrar no Builder
+        </button>
+      </section>
 
-      <div id="custom-fields" class="custom hidden">
-        <div class="field">
-          <label for="apiUrl">API URL</label>
-          <input id="apiUrl" type="url" spellcheck="false" placeholder="https://api.tbldr.com.br" />
-        </div>
-        <div class="field">
-          <label for="appUrl">App URL</label>
-          <input id="appUrl" type="url" spellcheck="false" placeholder="https://tbldr.com.br" />
-        </div>
-      </div>
+      <details class="advanced">
+        <summary>Configurações avançadas</summary>
 
-      <div class="status-row">
-        <div class="status" id="api-status">
-          <span class="dot" id="api-dot"></span>
-          <span id="api-text">API: não verificada</span>
-        </div>
-        <button id="test-btn" class="btn btn--ghost" type="button">Testar conexão</button>
-      </div>
+        <section class="card">
+          <div class="field">
+            <label>Ambiente</label>
+            <div class="segmented">
+              <button id="env-prod" class="seg active" type="button">Produção</button>
+              <button id="env-custom" class="seg" type="button">Personalizado</button>
+            </div>
+          </div>
 
-      <div class="status-row">
-        <div class="status" id="figma-status">
-          <span class="dot" id="figma-dot"></span>
-          <span id="figma-text">Ponte Figma local: não verificada</span>
-        </div>
-        <button id="figma-btn" class="btn btn--ghost" type="button">Verificar Figma</button>
-      </div>
+          <div id="custom-fields" class="custom hidden">
+            <div class="field">
+              <label for="apiUrl">API URL</label>
+              <input id="apiUrl" type="url" spellcheck="false" placeholder="https://api.tbldr.com.br" />
+            </div>
+            <div class="field">
+              <label for="appUrl">App URL</label>
+              <input id="appUrl" type="url" spellcheck="false" placeholder="https://tbldr.com.br" />
+            </div>
+          </div>
 
-      <button id="open-btn" class="btn btn--primary" type="button">
-        Entrar no Builder
-      </button>
-      <button id="bridge-btn" class="btn btn--ghost btn--wide" type="button">
-        Abrir ponte Figma (local)
-      </button>
-      <p class="hint">O login acontece na próxima tela, na aplicação, e fica salvo nesta máquina.</p>
+          <div class="status-row">
+            <div class="status" id="api-status">
+              <span class="dot" id="api-dot"></span>
+              <span id="api-text">API: não verificada</span>
+            </div>
+            <button id="test-btn" class="btn btn--ghost" type="button">Testar conexão</button>
+          </div>
+
+          <div class="status-row">
+            <div class="status" id="figma-status">
+              <span class="dot" id="figma-dot"></span>
+              <span id="figma-text">Ponte Figma local: não verificada</span>
+            </div>
+            <button id="figma-btn" class="btn btn--ghost" type="button">Verificar Figma</button>
+          </div>
+
+          <button id="bridge-btn" class="btn btn--ghost btn--wide" type="button">
+            Abrir ponte Figma (local)
+          </button>
+        </section>
+      </details>
     </section>
 
     <footer class="foot">

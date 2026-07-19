@@ -27,6 +27,7 @@
     "productName": "Think A.M. Builder",
     "files": [
       "src/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "directories": {
@@ -39,6 +40,7 @@
       "releaseType": "release"
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
         "nsis"
       ]
@@ -47,6 +49,7 @@
       "artifactName": "ThinkAM-Builder-Setup.${ext}"
     },
     "mac": {
+      "icon": "build/icon.png",
       "target": [
         "dmg"
       ],
@@ -56,6 +59,7 @@
       "artifactName": "ThinkAM-Builder.${ext}"
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ],

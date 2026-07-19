@@ -99,6 +99,7 @@ function createWindow() {
     backgroundColor: '#0b1220',
     show: false,
     title: 'Think A.M. Builder',
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
       partition: SESSION_PARTITION,
       preload: path.join(__dirname, 'preload.js'),
@@ -222,7 +223,7 @@ ipcMain.handle('auth:login', async (_e, creds) => {
   const { email, password } = creds || {};
   const base = (loadConfig().apiUrl || DEFAULT_CONFIG.apiUrl).replace(/\/+$/, '');
   try {
-    const res = await fetch(`${base}/auth/login`, {
+    const res = await fetch(`${base}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
