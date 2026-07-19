@@ -55,6 +55,8 @@ const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : 
 
 function slugify(value) {
   return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // strip accents: Redefinição → Redefinicao
     .trim()
     .replace(/^\//, '')
     .toLowerCase()
@@ -116,8 +118,18 @@ function mcpResultText(result) {
     .join('\n');
 }
 
-const FRAME_TYPES = /^(frame|component|component_set|instance)$/i;
-const CONTAINER_TYPES = /^(page|canvas|document|section|node|root|metadata)$/i;
+const FRAME_TYPES = /^(frame|component|component[-_]set|instance)$/i;
+
+// Accepts a raw node id ("48557:657" / "48557-657") or a full Figma URL with
+// ?node-id=…; returns the id normalized to colon form, or '' when absent.
+function normalizeNodeId(value) {
+  const raw = (value || '').trim();
+  if (!raw) return '';
+  const urlMatch = raw.match(/node-id=([0-9]+[-:][0-9]+)/i);
+  const candidate = urlMatch ? urlMatch[1] : raw;
+  const idMatch = candidate.match(/^([0-9]+)[-:]([0-9]+)$/);
+  return idMatch ? `${idMatch[1]}:${idMatch[2]}` : '';
+}
 
 // Walks a parsed JSON node tree collecting top-level screen frames
 // (frames whose ancestors contain no other frame).
@@ -136,46 +148,69 @@ function collectScreensFromJson(node, insideFrame, out) {
   if (children) collectScreensFromJson(children, insideFrame || isFrame, out);
 }
 
-// Walks an XML DOM collecting top-level screen frames.
-function collectScreensFromXml(element, insideFrame, out) {
-  for (const child of element.children) {
-    const tag = child.tagName || '';
-    const typeAttr = child.getAttribute && (child.getAttribute('type') || '');
-    const isFrame = FRAME_TYPES.test(tag) || FRAME_TYPES.test(typeAttr);
-    const name = child.getAttribute && child.getAttribute('name');
-    if (isFrame && !insideFrame && name) {
-      out.push({ id: child.getAttribute('id') || null, name });
+// Scans XML-ish markup with a tag tokenizer (no DOM needed), collecting
+// top-level screen frames: frame-like tags with no frame-like ancestor.
+function collectScreensFromMarkup(markup, out) {
+  const tagRe = /<(\/?)([a-zA-Z0-9_-]+)((?:\s+[a-zA-Z0-9_-]+="[^"]*")*)\s*(\/?)>/g;
+  const attrRe = /([a-zA-Z0-9_-]+)="([^"]*)"/g;
+  const stack = []; // true when the open element is frame-like
+  let rootTag = null;
+  let match;
+  while ((match = tagRe.exec(markup)) !== null) {
+    const [, closing, tag, attrs, selfClosing] = match;
+    if (closing) { stack.pop(); continue; }
+    if (rootTag === null) rootTag = tag.toLowerCase();
+
+    let name = null;
+    let id = null;
+    let type = '';
+    let attrMatch;
+    attrRe.lastIndex = 0;
+    while ((attrMatch = attrRe.exec(attrs)) !== null) {
+      if (attrMatch[1] === 'name') name = attrMatch[2];
+      else if (attrMatch[1] === 'id') id = attrMatch[2];
+      else if (attrMatch[1] === 'type') type = attrMatch[2];
     }
-    collectScreensFromXml(child, insideFrame || isFrame, out);
+
+    const isFrame = FRAME_TYPES.test(tag) || FRAME_TYPES.test(type);
+    const insideFrame = stack.some(Boolean);
+    if (isFrame && !insideFrame && name) out.push({ id, name });
+    if (!selfClosing) stack.push(isFrame);
   }
+  return rootTag;
 }
 
-// Parses a get_metadata payload (JSON or XML) into a screen list.
+// Parses a get_metadata payload into { rootTag, screens }. The MCP prefixes
+// the XML with a text preamble ("Currently selected nodes: …"), so the markup
+// is located anywhere in the text — never assume it starts at position 0.
 function parseScreens(text) {
-  const trimmed = (text || '').trim();
-  if (!trimmed) return [];
+  const raw = (text || '').trim();
+  if (!raw) return { rootTag: null, screens: [] };
 
   const out = [];
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+  let rootTag = null;
+
+  const jsonStart = raw.search(/[{[]/);
+  if (jsonStart >= 0 && raw.indexOf('<') === -1) {
     try {
-      collectScreensFromJson(JSON.parse(trimmed), false, out);
+      collectScreensFromJson(JSON.parse(raw.slice(jsonStart)), false, out);
     } catch { /* fall through to XML */ }
   }
-  if (!out.length && trimmed.startsWith('<')) {
-    try {
-      const doc = new DOMParser().parseFromString(trimmed, 'text/xml');
-      if (!doc.querySelector('parsererror')) collectScreensFromXml(doc, false, out);
-    } catch { /* ignore */ }
+
+  const xmlStart = raw.indexOf('<');
+  if (!out.length && xmlStart >= 0) {
+    rootTag = collectScreensFromMarkup(raw.slice(xmlStart), out);
   }
 
   // Deduplicate by id/name, cap to something sane.
   const seen = new Set();
-  return out.filter((s) => {
+  const screens = out.filter((s) => {
     const key = s.id || s.name;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   }).slice(0, 60);
+  return { rootTag, screens };
 }
 
 async function detectScreens() {
@@ -200,36 +235,55 @@ async function detectScreens() {
     }
 
     ui.figmaText.textContent = 'Varrendo o arquivo em busca de telas…';
-    const args = {};
-    const node = ui.nodeId.value.trim();
-    if (node) args.nodeId = node;
-    const extraction = await api.figmaExtract('get_metadata', args);
-    if (!extraction.ok) {
+
+    const explicitNode = normalizeNodeId(ui.nodeId.value);
+    if (ui.nodeId.value.trim() && !explicitNode) {
       setDot(ui.figmaDot, 'bad');
-      ui.figmaText.textContent = 'Falha na varredura: ' + (extraction.error || 'erro desconhecido');
+      ui.figmaText.textContent = 'Node inválido. Cole a URL do Figma com ?node-id=… ou o id no formato 123:456.';
       return;
     }
 
-    const screens = parseScreens(mcpResultText(extraction.result));
-    if (!screens.length) {
+    // Strategy: an explicit node scans that subtree; otherwise scan the whole
+    // page via the canvas node (0:1) so an active selection in Figma does not
+    // narrow the scan. Falls back to the current selection if 0:1 fails.
+    let parsed = null;
+    const attempts = explicitNode ? [{ nodeId: explicitNode }] : [{ nodeId: '0:1' }, {}];
+    for (const args of attempts) {
+      const extraction = await api.figmaExtract('get_metadata', args);
+      if (!extraction.ok) continue;
+      const candidate = parseScreens(mcpResultText(extraction.result));
+      if (candidate.screens.length) { parsed = candidate; break; }
+      if (!parsed) parsed = candidate;
+    }
+
+    if (!parsed || !parsed.screens.length) {
       setDot(ui.figmaDot, 'warn');
-      ui.figmaText.textContent = 'Nenhuma tela (frame) encontrada. Abra a página do projeto no Figma e tente de novo.';
+      ui.figmaText.textContent = 'Nenhuma tela (frame) encontrada. Abra a página do projeto no Figma desktop e tente de novo.';
       return;
     }
 
-    routeCandidates = screens.map((s, i) => ({
+    routeCandidates = parsed.screens.map((s, i) => ({
       id: s.id || `screen-${i}`,
       name: s.name,
       route: slugify(s.name) || `tela-${i + 1}`,
       included: true,
     }));
+
+    // Design files often repeat screens as interaction states (Hover, filled
+    // variants…). Keep the first occurrence of each route checked and uncheck
+    // the duplicates by default — the user can re-check what matters.
+    const seenRoutes = new Set();
+    for (const candidate of routeCandidates) {
+      if (seenRoutes.has(candidate.route)) candidate.included = false;
+      else seenRoutes.add(candidate.route);
+    }
     renderRoutes();
 
     setDot(ui.figmaDot, 'ok');
     ui.figmaText.textContent = `${routeCandidates.length} tela(s) detectada(s) — revise a lista abaixo.`;
-    if (routeCandidates.length === 1) {
+    if (routeCandidates.length === 1 && !explicitNode && parsed.rootTag !== 'canvas') {
       ui.detectHint.hidden = false;
-      ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma. Pressione Esc lá para desmarcar e detecte novamente para varrer a página inteira.';
+      ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma restringindo a varredura. Pressione Esc lá para desmarcar e detecte novamente.';
     }
   } finally {
     ui.extractBtn.disabled = false;
