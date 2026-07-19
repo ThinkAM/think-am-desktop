@@ -27,6 +27,7 @@ const ui = {
   extractBtn: el('extract-btn'),
   routesWrap: el('routes-wrap'),
   routesList: el('routes-list'),
+  detectHint: el('detect-hint'),
   aiCard: el('ai-card'),
   provider: el('provider'),
   provOpenai: el('prov-openai'),
@@ -106,11 +107,83 @@ function renderRoutes() {
   ui.routesWrap.hidden = routeCandidates.length === 0;
 }
 
-async function extractFromFigma() {
+// Pulls raw text out of an MCP tool result ({ content: [{type:'text', text}] }).
+function mcpResultText(result) {
+  const parts = (result && result.content) || [];
+  return parts
+    .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text)
+    .join('\n');
+}
+
+const FRAME_TYPES = /^(frame|component|component_set|instance)$/i;
+const CONTAINER_TYPES = /^(page|canvas|document|section|node|root|metadata)$/i;
+
+// Walks a parsed JSON node tree collecting top-level screen frames
+// (frames whose ancestors contain no other frame).
+function collectScreensFromJson(node, insideFrame, out) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectScreensFromJson(item, insideFrame, out);
+    return;
+  }
+  const type = String(node.type || '');
+  const isFrame = FRAME_TYPES.test(type);
+  if (isFrame && !insideFrame && node.name) {
+    out.push({ id: node.id || null, name: String(node.name) });
+  }
+  const children = node.children || node.nodes || null;
+  if (children) collectScreensFromJson(children, insideFrame || isFrame, out);
+}
+
+// Walks an XML DOM collecting top-level screen frames.
+function collectScreensFromXml(element, insideFrame, out) {
+  for (const child of element.children) {
+    const tag = child.tagName || '';
+    const typeAttr = child.getAttribute && (child.getAttribute('type') || '');
+    const isFrame = FRAME_TYPES.test(tag) || FRAME_TYPES.test(typeAttr);
+    const name = child.getAttribute && child.getAttribute('name');
+    if (isFrame && !insideFrame && name) {
+      out.push({ id: child.getAttribute('id') || null, name });
+    }
+    collectScreensFromXml(child, insideFrame || isFrame, out);
+  }
+}
+
+// Parses a get_metadata payload (JSON or XML) into a screen list.
+function parseScreens(text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return [];
+
+  const out = [];
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      collectScreensFromJson(JSON.parse(trimmed), false, out);
+    } catch { /* fall through to XML */ }
+  }
+  if (!out.length && trimmed.startsWith('<')) {
+    try {
+      const doc = new DOMParser().parseFromString(trimmed, 'text/xml');
+      if (!doc.querySelector('parsererror')) collectScreensFromXml(doc, false, out);
+    } catch { /* ignore */ }
+  }
+
+  // Deduplicate by id/name, cap to something sane.
+  const seen = new Set();
+  return out.filter((s) => {
+    const key = s.id || s.name;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 60);
+}
+
+async function detectScreens() {
   showError('');
   setDot(ui.figmaDot, 'loading');
   ui.figmaText.textContent = 'Conectando ao Figma MCP local…';
   ui.extractBtn.disabled = true;
+  ui.detectHint.hidden = true;
   try {
     const conn = await api.figmaConnect();
     if (!conn.ok) {
@@ -118,55 +191,46 @@ async function extractFromFigma() {
       ui.figmaText.textContent = conn.error || 'Não foi possível conectar ao Figma MCP local.';
       return;
     }
-    const tool = conn.preferred || (conn.tools && conn.tools[0] && conn.tools[0].name);
-    if (!tool) {
+
+    const toolNames = new Set((conn.tools || []).map((t) => t.name));
+    if (!toolNames.has('get_metadata')) {
       setDot(ui.figmaDot, 'bad');
-      ui.figmaText.textContent = 'O Figma MCP local não expôs ferramentas de extração.';
+      ui.figmaText.textContent = 'O Figma MCP local não expõe get_metadata — atualize o Figma desktop.';
       return;
     }
 
-    ui.figmaText.textContent = 'Extraindo design context…';
+    ui.figmaText.textContent = 'Varrendo o arquivo em busca de telas…';
     const args = {};
     const node = ui.nodeId.value.trim();
     if (node) args.nodeId = node;
-    const extraction = await api.figmaExtract(tool, args);
+    const extraction = await api.figmaExtract('get_metadata', args);
     if (!extraction.ok) {
       setDot(ui.figmaDot, 'bad');
-      ui.figmaText.textContent = 'Falha na extração: ' + (extraction.error || 'erro desconhecido');
+      ui.figmaText.textContent = 'Falha na varredura: ' + (extraction.error || 'erro desconhecido');
       return;
     }
 
-    ui.figmaText.textContent = 'Analisando rotas e componentes…';
-    const analyzed = await api.genAnalyze(extraction.result, ui.projName.value.trim() || 'project');
-    if (!analyzed.ok || !analyzed.analysis) {
-      setDot(ui.figmaDot, 'bad');
-      ui.figmaText.textContent = 'Falha na análise: ' + (analyzed.error || 'erro desconhecido');
+    const screens = parseScreens(mcpResultText(extraction.result));
+    if (!screens.length) {
+      setDot(ui.figmaDot, 'warn');
+      ui.figmaText.textContent = 'Nenhuma tela (frame) encontrada. Abra a página do projeto no Figma e tente de novo.';
       return;
     }
 
-    const analysis = analyzed.analysis;
-    const screens = (analysis.screens || []).filter((s) => s.kind === 'route');
-    if (screens.length) {
-      routeCandidates = screens.map((s, i) => ({
-        id: s.id || `route-${i}`,
-        name: s.name || s.route || `Tela ${i + 1}`,
-        route: slugify(s.route || (analysis.routes && analysis.routes[i]) || s.name),
-        included: true,
-      }));
-    } else {
-      routeCandidates = (analysis.routes || []).map((r, i) => ({
-        id: `route-${i}`,
-        name: r,
-        route: slugify(r),
-        included: true,
-      }));
-    }
+    routeCandidates = screens.map((s, i) => ({
+      id: s.id || `screen-${i}`,
+      name: s.name,
+      route: slugify(s.name) || `tela-${i + 1}`,
+      included: true,
+    }));
     renderRoutes();
 
     setDot(ui.figmaDot, 'ok');
-    ui.figmaText.textContent = routeCandidates.length
-      ? `Design extraído — ${routeCandidates.length} rota(s) inferida(s).`
-      : 'Design extraído. Nenhuma rota inferida — o scaffold padrão será usado.';
+    ui.figmaText.textContent = `${routeCandidates.length} tela(s) detectada(s) — revise a lista abaixo.`;
+    if (routeCandidates.length === 1) {
+      ui.detectHint.hidden = false;
+      ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma. Pressione Esc lá para desmarcar e detecte novamente para varrer a página inteira.';
+    }
   } finally {
     ui.extractBtn.disabled = false;
   }
@@ -185,7 +249,8 @@ function syncProviderFields() {
 
 function buildRequest() {
   const provider = ui.provider.value || null;
-  const routes = routeCandidates.filter((c) => c.included && c.route).map((c) => c.route);
+  const selected = routeCandidates.filter((c) => c.included && c.route);
+  const routes = selected.map((c) => c.route);
   return {
     projectName: ui.projName.value.trim(),
     description: ui.projDesc.value.trim() || null,
@@ -195,6 +260,16 @@ function buildRequest() {
     projectType: 'web-app',
     outputMode,
     customRoutes: routes.length ? routes : null,
+    figmaScreens: selected.length
+      ? selected.map((c) => ({
+          screenId: c.id,
+          name: c.name,
+          kind: 'route',
+          route: c.route,
+          figmaPrompt: null,
+          parentRoute: null,
+        }))
+      : null,
     llmProvider: provider,
     openaiBaseUrl: provider === 'openai-compatible' ? el('openaiBaseUrl').value.trim() || null : null,
     openaiModel: provider === 'openai-compatible' ? el('openaiModel').value.trim() || null : null,
@@ -300,7 +375,7 @@ async function init() {
   ui.gateCta.addEventListener('click', () => api.navigate('launcher'));
   ui.modeTemplate.addEventListener('click', () => setOutputMode('template'));
   ui.modeStarter.addEventListener('click', () => setOutputMode('starter-kit'));
-  ui.extractBtn.addEventListener('click', extractFromFigma);
+  ui.extractBtn.addEventListener('click', detectScreens);
   ui.provider.addEventListener('change', syncProviderFields);
   ui.generateBtn.addEventListener('click', generate);
   ui.downloadBtn.addEventListener('click', download);

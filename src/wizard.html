@@ -49,22 +49,23 @@
     <!-- Step 2: local Figma (optional) -->
     <section id="figma-card" class="card" hidden>
       <h2 class="card__title"><span class="stepnum">2</span> Figma local <span class="badge badge--architect">Architect</span></h2>
-      <p class="hint hint--left">Opcional. Abra o arquivo no Figma desktop, selecione o frame e extraia o design direto do MCP local — as rotas inferidas entram na geração.</p>
-      <div class="field">
-        <label for="nodeId">Node ID (opcional — vazio usa a seleção atual no Figma)</label>
-        <input id="nodeId" type="text" spellcheck="false" placeholder="123:456" />
-      </div>
+      <p class="hint hint--left">Opcional. Abra o arquivo do projeto no Figma desktop e detecte as telas: o sistema varre o arquivo, identifica os frames e infere uma rota para cada tela. Depois é só revisar a lista.</p>
       <div class="status-row">
         <div class="status">
           <span class="dot" id="figma-dot"></span>
-          <span id="figma-text">Nenhum design extraído.</span>
+          <span id="figma-text">Nenhuma tela detectada ainda.</span>
         </div>
-        <button id="extract-btn" class="btn btn--ghost" type="button">Extrair do Figma</button>
+        <button id="extract-btn" class="btn btn--ghost" type="button">Detectar telas do arquivo</button>
+      </div>
+      <div class="field field--sub">
+        <label for="nodeId">Restringir a um node (opcional — ex.: uma Section; vazio varre a página atual)</label>
+        <input id="nodeId" type="text" spellcheck="false" placeholder="123:456" />
       </div>
 
       <div id="routes-wrap" hidden>
-        <label class="routes-label">Rotas inferidas — marque as que entram no projeto e ajuste os slugs:</label>
+        <label class="routes-label">Telas detectadas — marque as que entram no projeto e ajuste as rotas:</label>
         <ul id="routes-list" class="routes"></ul>
+        <p class="hint hint--left" id="detect-hint" hidden></p>
       </div>
     </section>
 

@@ -33,6 +33,9 @@ select option { background: var(--navy-800); }
 
 .hint--left { text-align: left; }
 
+.field--sub { margin-top: 12px; }
+.field--sub > label { text-transform: none; letter-spacing: 0; font-weight: 600; }
+
 .card__title .badge { margin-left: auto; }
 
 .routes-label {
