@@ -70,12 +70,14 @@ https://github.com/ThinkAM/think-am-desktop/releases/latest
 ### `release.yml` (Triggered on tag push)
 - **Matrix build**: Windows, macOS, Linux
 - **Parallel execution**: All platforms build simultaneously
-- **Publish**: electron-builder uploads to GitHub Releases
+- **Publish**: electron-builder uploads to GitHub Releases (uses `--publish always`)
 - **Mark latest**: Final job marks release as latest
+- **Requires**: GH_TOKEN (automatically provided by GitHub Actions)
 
 ### `ci.yml` (Triggered on push/PR)
 - **Test builds**: All platforms
-- **No publish**: Just validates builds work
+- **No publish**: Uses `--publish never` flag to skip GitHub release upload
+- **Purpose**: Validates builds work without requiring draft release
 
 ---
 
