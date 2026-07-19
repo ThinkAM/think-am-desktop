@@ -32,14 +32,12 @@
     "directories": {
       "output": "dist"
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "ThinkAM",
-        "repo": "think-am-desktop",
-        "releaseType": "release"
-      }
-    ],
+    "publish": {
+      "provider": "github",
+      "owner": "ThinkAM",
+      "repo": "think-am-desktop",
+      "releaseType": "release"
+    },
     "win": {
       "target": [
         "nsis"

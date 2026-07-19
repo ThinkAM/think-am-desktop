@@ -42,7 +42,7 @@ jobs:
         run: npm install
         
       - name: Build (${{ matrix.platform }})
-        run: npm run dist:${{ matrix.platform }}
+        run: npm run dist:${{ matrix.platform }} -- --publish never
         
       - name: Check artifacts
         run: |
