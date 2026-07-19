@@ -1,0 +1,55 @@
+/* Native generation wizard — extends launcher.css */
+
+.shell--wide { max-width: 680px; }
+
+.brand { align-items: center; }
+
+.card { margin-bottom: 16px; }
+.card__title {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; margin-bottom: 16px; letter-spacing: -0.01em;
+}
+.stepnum {
+  width: 26px; height: 26px; border-radius: 8px; flex: none;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800;
+  background: linear-gradient(135deg, var(--cyan-400), var(--blue-600)); color: #041019;
+}
+
+textarea {
+  width: 100%; padding: 12px 14px; border-radius: 12px; resize: vertical;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(2, 8, 23, 0.4); color: #e2e8f0; font: inherit;
+  -webkit-user-select: text; user-select: text;
+}
+textarea:focus { outline: none; border-color: var(--cyan-300); }
+
+select {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(2, 8, 23, 0.4); color: #e2e8f0; font: inherit;
+}
+select:focus { outline: none; border-color: var(--cyan-300); }
+select option { background: var(--navy-800); }
+
+.hint--left { text-align: left; }
+
+.card__title .badge { margin-left: auto; }
+
+.routes-label {
+  display: block; margin: 16px 0 10px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--slate-400);
+}
+.routes { list-style: none; display: grid; gap: 8px; }
+.routes li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 10px;
+  background: rgba(2, 8, 23, 0.35); border: 1px solid rgba(148, 163, 184, 0.14);
+}
+.routes input[type="checkbox"] { width: auto; accent-color: var(--cyan-400); flex: none; }
+.routes .route-name { flex: none; min-width: 130px; font-size: 13px; color: var(--slate-300); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routes input[type="text"] { flex: 1; padding: 8px 10px; font-size: 13px; }
+
+.progress { margin-top: 16px; }
+#result { margin-top: 8px; }
+#run-error { color: var(--bad); }

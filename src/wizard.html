@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';" />
+  <title>Think A.M. Builder — Gerar projeto</title>
+  <link rel="stylesheet" href="launcher.css" />
+  <link rel="stylesheet" href="wizard.css" />
+</head>
+<body>
+  <main class="shell shell--wide">
+    <header class="brand">
+      <button id="back-btn" class="btn btn--ghost btn--compact" type="button">← Voltar</button>
+      <div class="brand__text">
+        <strong>Gerar projeto</strong>
+        <span id="acct-line">—</span>
+      </div>
+    </header>
+
+    <!-- Gate: shown when not logged in -->
+    <section id="gate" class="card" hidden>
+      <h2 id="gate-title">Faça login para gerar projetos</h2>
+      <p class="hint" id="gate-msg" style="text-align:left">Entre na sua conta na tela inicial para usar o gerador.</p>
+      <button id="gate-cta" class="btn btn--primary btn--wide" type="button">Voltar e fazer login</button>
+    </section>
+
+    <!-- Step 1: project -->
+    <section id="project-card" class="card" hidden>
+      <h2 class="card__title"><span class="stepnum">1</span> Projeto</h2>
+      <div class="field">
+        <label for="projName">Nome do projeto</label>
+        <input id="projName" type="text" spellcheck="false" placeholder="meu-app" />
+      </div>
+      <div class="field">
+        <label for="projDesc">Descrição (orienta a IA na geração)</label>
+        <textarea id="projDesc" rows="3" placeholder="Um painel para gerenciar pedidos, clientes e relatórios…"></textarea>
+      </div>
+      <div class="field">
+        <label>Formato de saída</label>
+        <div class="segmented">
+          <button id="mode-template" class="seg active" type="button">Template IA</button>
+          <button id="mode-starter" class="seg" type="button">Starter Kit</button>
+        </div>
+        <p class="hint hint--left" id="mode-hint">Geração completa via pipeline de IA, parametrizada pelo seu design.</p>
+      </div>
+    </section>
+
+    <!-- Step 2: local Figma (optional) -->
+    <section id="figma-card" class="card" hidden>
+      <h2 class="card__title"><span class="stepnum">2</span> Figma local <span class="badge badge--architect">Architect</span></h2>
+      <p class="hint hint--left">Opcional. Abra o arquivo no Figma desktop, selecione o frame e extraia o design direto do MCP local — as rotas inferidas entram na geração.</p>
+      <div class="field">
+        <label for="nodeId">Node ID (opcional — vazio usa a seleção atual no Figma)</label>
+        <input id="nodeId" type="text" spellcheck="false" placeholder="123:456" />
+      </div>
+      <div class="status-row">
+        <div class="status">
+          <span class="dot" id="figma-dot"></span>
+          <span id="figma-text">Nenhum design extraído.</span>
+        </div>
+        <button id="extract-btn" class="btn btn--ghost" type="button">Extrair do Figma</button>
+      </div>
+
+      <div id="routes-wrap" hidden>
+        <label class="routes-label">Rotas inferidas — marque as que entram no projeto e ajuste os slugs:</label>
+        <ul id="routes-list" class="routes"></ul>
+      </div>
+    </section>
+
+    <!-- Step 3: AI inference (optional, BYOK) -->
+    <section id="ai-card" hidden>
+      <details class="advanced">
+        <summary>Inferência de IA (BYOK) — opcional</summary>
+        <section class="card">
+          <div class="field">
+            <label for="provider">Provider de LLM</label>
+            <select id="provider">
+              <option value="">Nenhum (geração determinística)</option>
+              <option value="openai-compatible">OpenAI-compatible (Ollama, LM Studio, DeepSeek…)</option>
+              <option value="anthropic">Anthropic — Claude (Architect)</option>
+              <option value="bedrock">Amazon Bedrock — Claude (Architect)</option>
+            </select>
+          </div>
+          <div id="prov-openai" class="custom hidden">
+            <div class="field"><label for="openaiBaseUrl">Base URL</label><input id="openaiBaseUrl" type="url" placeholder="http://localhost:11434/v1" /></div>
+            <div class="field"><label for="openaiModel">Modelo</label><input id="openaiModel" type="text" placeholder="qwen2.5-coder:7b" /></div>
+            <div class="field"><label for="openaiKey">API key (opcional)</label><input id="openaiKey" type="password" placeholder="sk-…" /></div>
+          </div>
+          <div id="prov-anthropic" class="custom hidden">
+            <div class="field"><label for="anthropicKey">Anthropic API key</label><input id="anthropicKey" type="password" placeholder="sk-ant-…" /></div>
+            <div class="field"><label for="anthropicModel">Modelo</label>
+              <select id="anthropicModel">
+                <option value="claude-opus-4-8">Claude Opus 4.8 (mais capaz)</option>
+                <option value="claude-sonnet-5">Claude Sonnet 5 (equilíbrio)</option>
+                <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido/barato)</option>
+              </select>
+            </div>
+          </div>
+          <div id="prov-bedrock" class="custom hidden">
+            <div class="field"><label for="bedrockRegion">AWS region</label><input id="bedrockRegion" type="text" placeholder="us-east-1" /></div>
+            <div class="field"><label for="bedrockKeyId">AWS Access Key ID</label><input id="bedrockKeyId" type="password" placeholder="AKIA…" /></div>
+            <div class="field"><label for="bedrockSecret">AWS Secret Access Key</label><input id="bedrockSecret" type="password" placeholder="••••••••" /></div>
+            <div class="field"><label for="bedrockModel">Modelo</label>
+              <select id="bedrockModel">
+                <option value="anthropic.claude-opus-4-8">Claude Opus 4.8</option>
+                <option value="anthropic.claude-sonnet-5">Claude Sonnet 5</option>
+                <option value="anthropic.claude-haiku-4-5">Claude Haiku 4.5</option>
+              </select>
+            </div>
+          </div>
+          <p class="hint hint--left">A chave vale só para esta geração e não entra nos artefatos do projeto. Providers Anthropic/Bedrock exigem plano Architect.</p>
+        </section>
+      </details>
+    </section>
+
+    <!-- Generate + progress -->
+    <section id="run-card" class="card" hidden>
+      <button id="generate-btn" class="btn btn--primary btn--wide" type="button">Gerar projeto</button>
+      <div id="progress" class="progress" hidden>
+        <div class="status">
+          <span class="dot" id="gen-dot"></span>
+          <span id="gen-text">Preparando…</span>
+        </div>
+      </div>
+      <div id="result" hidden>
+        <button id="download-btn" class="btn btn--primary btn--wide" type="button">Baixar projeto (.zip)</button>
+        <p class="hint" id="result-hint"></p>
+      </div>
+      <p class="hint hint--left" id="run-error" hidden></p>
+    </section>
+
+    <footer class="foot">
+      <span id="version">v—</span>
+      <a href="#" id="site-link">tbldr.com.br</a>
+    </footer>
+  </main>
+
+  <script src="wizard.js"></script>
+</body>
+</html>

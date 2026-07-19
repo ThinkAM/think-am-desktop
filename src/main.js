@@ -199,23 +199,18 @@ ipcMain.handle('figma:check', async (_e, port) => {
   });
 });
 
-// Load the Builder web app in the same (persistent) session window.
-ipcMain.handle('app:open', (_e, appUrl) => {
-  const url = (appUrl || loadConfig().appUrl).replace(/\/+$/, '');
-  if (mainWindow) mainWindow.loadURL(url);
-  return { ok: true, url };
-});
-
 ipcMain.handle('shell:external', (_e, url) => {
   if (typeof url === 'string' && url.startsWith('http')) shell.openExternal(url);
 });
 
-// Navigate the main window between local pages (launcher ↔ bridge).
+// Navigate the main window between local pages (launcher ↔ wizard ↔ bridge).
 ipcMain.handle('nav:go', (_e, page) => {
-  const safe = { launcher: 'launcher.html', bridge: 'bridge.html' };
+  const safe = { launcher: 'launcher.html', bridge: 'bridge.html', wizard: 'wizard.html' };
   const file = safe[page] || 'launcher.html';
   if (mainWindow) mainWindow.loadFile(path.join(__dirname, file));
 });
+
+ipcMain.handle('app:version', () => app.getVersion());
 
 // --- auth IPC ----------------------------------------------------------------
 
@@ -320,6 +315,128 @@ ipcMain.handle('figma:generate', async (_e, payload) => {
     return { ok: false, error: String((err && err.message) || err), endpoint };
   }
 });
+
+// --- native generation wizard (no embedded site) ------------------------------
+
+function requireAuth() {
+  const a = loadAuth();
+  if (!a || !a.token) return { error: 'Faça login para gerar projetos.', reason: 'auth' };
+  return null;
+}
+
+function apiBase() {
+  return (loadConfig().apiUrl || DEFAULT_CONFIG.apiUrl).replace(/\/+$/, '');
+}
+
+async function apiJson(url, options = {}) {
+  const res = await fetch(url, options);
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text.slice(0, 2000) }; }
+  return { status: res.status, ok: res.ok, body };
+}
+
+// Runs the pre-extracted local-MCP context through the same analysis pipeline
+// the hosted wizard uses; returns the full parsed analysis (routes/screens).
+ipcMain.handle('gen:analyze', async (_e, payload) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const { context, projectName } = payload || {};
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/design-sources/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify({ projectName: projectName || null, figmaContext: context || null }),
+    });
+    return { ok: r.ok, status: r.status, analysis: r.ok ? r.body : null, error: r.ok ? null : extractApiError(r.body, r.status) };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Kicks off code generation. Returns { async: true, jobId } on 202 or the
+// sync result on 200.
+ipcMain.handle('gen:generate', async (_e, request) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify(request || {}),
+    });
+    if (r.status === 202) {
+      return { ok: true, async: true, jobId: r.body && (r.body.jobId || r.body.job_id), sessionId: r.body && (r.body.sessionId || r.body.session_id) };
+    }
+    if (r.ok) {
+      return {
+        ok: true,
+        async: false,
+        downloadUrl: r.body && (r.body.downloadUrl || r.body.download_url),
+        projectName: r.body && (r.body.projectName || r.body.project_name),
+        sizeBytes: r.body && (r.body.sizeBytes || r.body.size_bytes),
+      };
+    }
+    return { ok: false, status: r.status, error: extractApiError(r.body, r.status) };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Polls an async generation job (knowledge JSON is snake_case; tolerate both).
+ipcMain.handle('gen:job', async (_e, jobId) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/jobs/${encodeURIComponent(jobId)}`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    });
+    if (!r.ok) return { ok: false, status: r.status, error: extractApiError(r.body, r.status) };
+    const b = r.body || {};
+    return {
+      ok: true,
+      status: b.status,
+      progress: b.progress,
+      downloadUrl: b.download_url || b.downloadUrl || null,
+      error: b.error || null,
+    };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Downloads the generated zip natively into the OS Downloads folder and
+// reveals it in the file manager.
+ipcMain.handle('gen:download', async (_e, downloadUrl) => {
+  try {
+    const fileName = String(downloadUrl || '').split('/').pop() || 'project.zip';
+    const res = await fetch(`${apiBase()}/api/code-generation/download/${encodeURIComponent(fileName)}`);
+    if (!res.ok) return { ok: false, error: `Download falhou (HTTP ${res.status}).` };
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const target = path.join(app.getPath('downloads'), fileName);
+    fs.writeFileSync(target, buffer);
+    shell.showItemInFolder(target);
+    return { ok: true, path: target, sizeBytes: buffer.length };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+function extractApiError(body, status) {
+  if (body) {
+    if (typeof body.error === 'string') return body.error;
+    if (typeof body.detail === 'string') return body.detail;
+    if (typeof body.title === 'string') return body.title;
+    if (typeof body.raw === 'string' && body.raw.trim()) return body.raw.slice(0, 300);
+  }
+  if (status === 401) return 'Sessão expirada — faça login novamente.';
+  if (status === 402) return 'Limite do plano Free atingido (3 gerações/mês). Faça upgrade para o plano Builder.';
+  if (status === 403) return 'Recurso não disponível no seu plano.';
+  return `Falha na requisição (HTTP ${status}).`;
+}
 
 // --- lifecycle ---------------------------------------------------------------
 

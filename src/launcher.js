@@ -16,6 +16,7 @@ const els = {
   testBtn: el('test-btn'),
   figmaBtn: el('figma-btn'),
   openBtn: el('open-btn'),
+  siteBtn: el('site-btn'),
   bridgeBtn: el('bridge-btn'),
   version: el('version'),
   siteLink: el('site-link'),
@@ -96,12 +97,16 @@ async function checkFigma() {
   }
 }
 
-async function openApp() {
-  const urls = currentUrls();
-  await api.setConfig(urls);
-  els.openBtn.disabled = true;
-  els.openBtn.textContent = 'Abrindo…';
-  await api.openApp(urls.appUrl);
+// Persists the chosen environment and opens the NATIVE generation wizard —
+// the site is never embedded in the app.
+async function openWizard() {
+  await api.setConfig(currentUrls());
+  await api.navigate('wizard');
+}
+
+async function openSiteExternal() {
+  const { appUrl } = currentUrls();
+  await api.openExternal(appUrl);
 }
 
 function renderAuth(auth) {
@@ -159,7 +164,8 @@ async function init() {
   els.envCustom.addEventListener('click', () => setMode(true));
   els.testBtn.addEventListener('click', testApi);
   els.figmaBtn.addEventListener('click', checkFigma);
-  els.openBtn.addEventListener('click', openApp);
+  els.openBtn.addEventListener('click', openWizard);
+  els.siteBtn.addEventListener('click', openSiteExternal);
   els.bridgeBtn.addEventListener('click', () => api.navigate('bridge'));
   els.loginBtn.addEventListener('click', login);
   els.logoutBtn.addEventListener('click', logout);
@@ -168,6 +174,8 @@ async function init() {
     e.preventDefault();
     api.openExternal('https://tbldr.com.br');
   });
+
+  try { els.version.textContent = 'v' + (await api.getVersion()); } catch { /* keep placeholder */ }
 
   // Reflect stored login state.
   renderAuth(await api.getAuth());

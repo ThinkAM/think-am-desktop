@@ -8,7 +8,6 @@ contextBridge.exposeInMainWorld('thinkam', {
   setConfig: (patch) => ipcRenderer.invoke('config:set', patch),
   checkApi: (apiUrl) => ipcRenderer.invoke('api:health', apiUrl),
   checkFigmaBridge: (port) => ipcRenderer.invoke('figma:check', port),
-  openApp: (appUrl) => ipcRenderer.invoke('app:open', appUrl),
   openExternal: (url) => ipcRenderer.invoke('shell:external', url),
   navigate: (page) => ipcRenderer.invoke('nav:go', page),
   // Auth (native login + plan gating)
@@ -19,4 +18,10 @@ contextBridge.exposeInMainWorld('thinkam', {
   figmaConnect: (url) => ipcRenderer.invoke('figma:connect', url),
   figmaExtract: (tool, args) => ipcRenderer.invoke('figma:extract', { tool, args }),
   figmaGenerate: (context, projectName) => ipcRenderer.invoke('figma:generate', { context, projectName }),
+  // Native generation wizard
+  getVersion: () => ipcRenderer.invoke('app:version'),
+  genAnalyze: (context, projectName) => ipcRenderer.invoke('gen:analyze', { context, projectName }),
+  genGenerate: (request) => ipcRenderer.invoke('gen:generate', request),
+  genJob: (jobId) => ipcRenderer.invoke('gen:job', jobId),
+  genDownload: (downloadUrl) => ipcRenderer.invoke('gen:download', downloadUrl),
 });
