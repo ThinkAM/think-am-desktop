@@ -27,6 +27,7 @@ const ui = {
   extractBtn: el('extract-btn'),
   routesWrap: el('routes-wrap'),
   routesList: el('routes-list'),
+  clearBtn: el('clear-btn'),
   detectHint: el('detect-hint'),
   aiCard: el('ai-card'),
   provider: el('provider'),
@@ -262,32 +263,44 @@ async function detectScreens() {
       return;
     }
 
-    routeCandidates = parsed.screens.map((s, i) => ({
-      id: s.id || `screen-${i}`,
-      name: s.name,
-      route: slugify(s.name) || `tela-${i + 1}`,
-      included: true,
-    }));
-
-    // Design files often repeat screens as interaction states (Hover, filled
-    // variants…). Keep the first occurrence of each route checked and uncheck
-    // the duplicates by default — the user can re-check what matters.
-    const seenRoutes = new Set();
-    for (const candidate of routeCandidates) {
-      if (seenRoutes.has(candidate.route)) candidate.included = false;
-      else seenRoutes.add(candidate.route);
-    }
+    // Merge into the existing list instead of replacing it: repeated scans
+    // (another Section, another page…) accumulate, and entries the user
+    // already reviewed keep their checkbox state and edited slugs.
+    const existingIds = new Set(routeCandidates.map((c) => c.id));
+    const seenRoutes = new Set(routeCandidates.map((c) => c.route));
+    const additions = [];
+    parsed.screens.forEach((s, i) => {
+      const id = s.id || `screen-${Date.now()}-${i}`;
+      if (existingIds.has(id)) return;
+      const route = slugify(s.name) || `tela-${routeCandidates.length + additions.length + 1}`;
+      // Design files repeat screens as interaction states (Hover, filled
+      // variants…): duplicates of an already-listed route start unchecked.
+      const isDuplicate = seenRoutes.has(route);
+      additions.push({ id, name: s.name, route, included: !isDuplicate });
+      seenRoutes.add(route);
+    });
+    routeCandidates = routeCandidates.concat(additions);
     renderRoutes();
 
-    setDot(ui.figmaDot, 'ok');
-    ui.figmaText.textContent = `${routeCandidates.length} tela(s) detectada(s) — revise a lista abaixo.`;
-    if (routeCandidates.length === 1 && !explicitNode && parsed.rootTag !== 'canvas') {
+    setDot(ui.figmaDot, additions.length ? 'ok' : 'warn');
+    ui.figmaText.textContent = additions.length
+      ? `${additions.length} tela(s) adicionada(s) — ${routeCandidates.length} na lista.`
+      : `Nenhuma tela nova — as ${parsed.screens.length} encontradas já estavam na lista.`;
+    if (additions.length === 1 && routeCandidates.length === 1 && !explicitNode && parsed.rootTag !== 'canvas') {
       ui.detectHint.hidden = false;
       ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma restringindo a varredura. Pressione Esc lá para desmarcar e detecte novamente.';
     }
   } finally {
     ui.extractBtn.disabled = false;
   }
+}
+
+function clearScreens() {
+  routeCandidates = [];
+  renderRoutes();
+  setDot(ui.figmaDot, null);
+  ui.figmaText.textContent = 'Lista limpa — detecte novamente quando quiser.';
+  ui.detectHint.hidden = true;
 }
 
 // --- provider (BYOK) ----------------------------------------------------------
@@ -430,6 +443,7 @@ async function init() {
   ui.modeTemplate.addEventListener('click', () => setOutputMode('template'));
   ui.modeStarter.addEventListener('click', () => setOutputMode('starter-kit'));
   ui.extractBtn.addEventListener('click', detectScreens);
+  ui.clearBtn.addEventListener('click', clearScreens);
   ui.provider.addEventListener('change', syncProviderFields);
   ui.generateBtn.addEventListener('click', generate);
   ui.downloadBtn.addEventListener('click', download);
