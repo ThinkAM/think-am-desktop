@@ -9,24 +9,8 @@ env:
   NODE_VERSION: '24.x'
 
 jobs:
-  create-release:
-    name: Create Draft Release
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Create Draft Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          generate_release_notes: true
-          make_latest: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
   release:
     name: Build Desktop Client
-    needs: [create-release]
     runs-on: ${{ matrix.os }}
     
     strategy:
@@ -66,23 +50,3 @@ jobs:
           echo "📦 Platform: ${{ matrix.platform }}"
           echo "🏷️  Version: ${{ github.ref_name }}"
           echo "📄 Artifact: ${{ matrix.artifact }}"
-          
-  finalize:
-    name: Publish Release as Latest
-    needs: [release]
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Success
-        run: |
-          echo "✅ Release ${{ github.ref_name }} is now PUBLISHED and marked as LATEST"
-          echo "🌐 Download: https://github.com/ThinkAM/think-am-desktop/releases/latest"
-          echo "📱 Auto-update enabled for desktop clients"
