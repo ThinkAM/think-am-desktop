@@ -486,6 +486,7 @@ function extractZip(buffer, destDir) {
   const count = buffer.readUInt16LE(eocd + 10);
   let offset = buffer.readUInt32LE(eocd + 16);
   let fileCount = 0;
+  const topLevelDirs = new Set();
 
   for (let n = 0; n < count && offset + 46 <= buffer.length; n++) {
     if (buffer.readUInt32LE(offset) !== CDFH) break;
@@ -497,6 +498,9 @@ function extractZip(buffer, destDir) {
     const localHeaderOffset = buffer.readUInt32LE(offset + 42);
     const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLen);
     offset += 46 + nameLen + extraLen + commentLen;
+
+    const firstSegment = name.split('/')[0];
+    if (firstSegment) topLevelDirs.add(firstSegment);
 
     const destPath = path.join(destDir, name);
     if (!destPath.startsWith(path.normalize(destDir))) continue; // guard against zip-slip
@@ -517,7 +521,7 @@ function extractZip(buffer, destDir) {
     fs.writeFileSync(destPath, content);
     fileCount++;
   }
-  return fileCount;
+  return { fileCount, topLevelDirs: [...topLevelDirs] };
 }
 
 ipcMain.handle('gen:pickFolder', async (_e, defaultPath) => {
@@ -582,10 +586,16 @@ ipcMain.handle('gen:save', async (_e, destDir) => {
   if (!lastZip) return { ok: false, error: 'Nada para salvar — gere o projeto primeiro.' };
   try {
     const baseDir = destDir && fs.existsSync(destDir) ? destDir : app.getPath('downloads');
-    const projectSlug = lastZip.fileName.replace(/\.zip$/i, '');
-    const target = path.join(baseDir, projectSlug);
-    fs.mkdirSync(target, { recursive: true });
-    const fileCount = extractZip(lastZip.buffer, target);
+    // Every entry in the server's zip is already prefixed with the clean
+    // project slug ("allpetz/apps/api/...") — the zip FILENAME additionally
+    // carries a job-id suffix ("allpetz-7f99f0ac.zip") that has nothing to
+    // do with that internal folder name. Extracting straight into baseDir
+    // (not a folder we invent ourselves from the filename) means the real
+    // project lands at baseDir/allpetz — not double-nested under a
+    // mismatched baseDir/allpetz-7f99f0ac/allpetz.
+    fs.mkdirSync(baseDir, { recursive: true });
+    const { fileCount, topLevelDirs } = extractZip(lastZip.buffer, baseDir);
+    const target = topLevelDirs.length === 1 ? path.join(baseDir, topLevelDirs[0]) : baseDir;
     shell.showItemInFolder(target);
     return { ok: true, path: target, fileCount };
   } catch (err) {
