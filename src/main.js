@@ -288,7 +288,20 @@ ipcMain.handle('figma:extract', async (_e, payload) => {
   try {
     if (!figmaClient) throw new Error('Not connected to the Figma MCP.');
     if (!tool) throw new Error('No tool selected.');
-    const result = await figmaClient.callTool(tool, args || {});
+    const finalArgs = { ...(args || {}) };
+    if (tool === 'get_design_context') {
+      if (!finalArgs.clientLanguages) finalArgs.clientLanguages = 'typescript,html,css';
+      if (!finalArgs.clientFrameworks) finalArgs.clientFrameworks = 'angular';
+    }
+    const result = await figmaClient.callTool(tool, finalArgs);
+    // The Figma MCP reports tool-level failures inside the result payload.
+    if (result && result.isError) {
+      const text = (result.content || [])
+        .filter((p) => p && p.type === 'text')
+        .map((p) => p.text)
+        .join(' ');
+      return { ok: false, error: text || 'Figma MCP tool error.' };
+    }
     return { ok: true, result };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) };
@@ -408,20 +421,97 @@ ipcMain.handle('gen:job', async (_e, jobId) => {
   }
 });
 
-// Downloads the generated zip natively into the OS Downloads folder and
-// reveals it in the file manager.
-ipcMain.handle('gen:download', async (_e, downloadUrl) => {
+// Runs the same request through /preview-manifest so the user can review the
+// generation plan (routes, screens, stack, inferred modules) before generating.
+ipcMain.handle('gen:preview', async (_e, request) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/preview-manifest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify(request || {}),
+    });
+    if (!r.ok) return { ok: false, status: r.status, error: extractApiError(r.body, r.status) };
+    return { ok: true, manifest: (r.body && r.body.manifest) || r.body };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Minimal ZIP central-directory reader — entry names only, no dependencies.
+function listZipEntries(buffer) {
+  const EOCD = 0x06054b50;
+  const CDFH = 0x02014b50;
+  let eocd = -1;
+  const scanStart = Math.max(0, buffer.length - 65557); // max comment + EOCD size
+  for (let i = buffer.length - 22; i >= scanStart; i--) {
+    if (buffer.readUInt32LE(i) === EOCD) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const names = [];
+  for (let n = 0; n < count && offset + 46 <= buffer.length; n++) {
+    if (buffer.readUInt32LE(offset) !== CDFH) break;
+    const nameLen = buffer.readUInt16LE(offset + 28);
+    const extraLen = buffer.readUInt16LE(offset + 30);
+    const commentLen = buffer.readUInt16LE(offset + 32);
+    names.push(buffer.toString('utf8', offset + 46, offset + 46 + nameLen));
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return names;
+}
+
+// Two-phase download: fetch keeps the zip in memory and returns its file
+// structure for preview; save writes it to the OS Downloads folder.
+let lastZip = null; // { fileName, buffer }
+
+ipcMain.handle('gen:fetch', async (_e, downloadUrl) => {
   try {
     const fileName = String(downloadUrl || '').split('/').pop() || 'project.zip';
     const res = await fetch(`${apiBase()}/api/code-generation/download/${encodeURIComponent(fileName)}`);
     if (!res.ok) return { ok: false, error: `Download falhou (HTTP ${res.status}).` };
     const buffer = Buffer.from(await res.arrayBuffer());
-    const target = path.join(app.getPath('downloads'), fileName);
-    fs.writeFileSync(target, buffer);
-    shell.showItemInFolder(target);
-    return { ok: true, path: target, sizeBytes: buffer.length };
+    lastZip = { fileName, buffer };
+    return { ok: true, fileName, sizeBytes: buffer.length, files: listZipEntries(buffer) || [] };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+ipcMain.handle('gen:save', async () => {
+  if (!lastZip) return { ok: false, error: 'Nada para salvar — gere o projeto primeiro.' };
+  try {
+    const target = path.join(app.getPath('downloads'), lastZip.fileName);
+    fs.writeFileSync(target, lastZip.buffer);
+    shell.showItemInFolder(target);
+    return { ok: true, path: target };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Persist the last generation inputs so the user can reuse them next time.
+function wizardInputsPath() {
+  return path.join(app.getPath('userData'), 'wizard-last.json');
+}
+
+ipcMain.handle('wizard:saveInputs', (_e, inputs) => {
+  try {
+    fs.writeFileSync(wizardInputsPath(), JSON.stringify(inputs || {}, null, 2), 'utf-8');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+ipcMain.handle('wizard:loadInputs', () => {
+  try {
+    return JSON.parse(fs.readFileSync(wizardInputsPath(), 'utf-8'));
+  } catch {
+    return null;
   }
 });
 

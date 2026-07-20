@@ -21,7 +21,11 @@ contextBridge.exposeInMainWorld('thinkam', {
   // Native generation wizard
   getVersion: () => ipcRenderer.invoke('app:version'),
   genAnalyze: (context, projectName) => ipcRenderer.invoke('gen:analyze', { context, projectName }),
+  genPreview: (request) => ipcRenderer.invoke('gen:preview', request),
   genGenerate: (request) => ipcRenderer.invoke('gen:generate', request),
   genJob: (jobId) => ipcRenderer.invoke('gen:job', jobId),
-  genDownload: (downloadUrl) => ipcRenderer.invoke('gen:download', downloadUrl),
+  genFetch: (downloadUrl) => ipcRenderer.invoke('gen:fetch', downloadUrl),
+  genSave: () => ipcRenderer.invoke('gen:save'),
+  saveWizardInputs: (inputs) => ipcRenderer.invoke('wizard:saveInputs', inputs),
+  loadWizardInputs: () => ipcRenderer.invoke('wizard:loadInputs'),
 });

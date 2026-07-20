@@ -28,6 +28,9 @@
     <!-- Step 1: project -->
     <section id="project-card" class="card" hidden>
       <h2 class="card__title"><span class="stepnum">1</span> Projeto</h2>
+      <button id="reuse-btn" class="btn btn--ghost btn--wide" type="button" hidden>
+        Reutilizar dados da última geração
+      </button>
       <div class="field">
         <label for="projName">Nome do projeto</label>
         <input id="projName" type="text" spellcheck="false" placeholder="meu-app" />
@@ -68,6 +71,10 @@
           <button id="clear-btn" class="btn btn--ghost btn--compact" type="button">Limpar lista</button>
         </div>
         <ul id="routes-list" class="routes"></ul>
+        <label class="check">
+          <input id="deepContext" type="checkbox" checked />
+          Extrair contexto visual por tela ao gerar (mais fiel ao design, mais lento)
+        </label>
         <p class="hint hint--left" id="detect-hint" hidden></p>
       </div>
     </section>
@@ -118,19 +125,33 @@
       </details>
     </section>
 
-    <!-- Generate + progress -->
+    <!-- Plan preview → generate → structure preview → save -->
     <section id="run-card" class="card" hidden>
-      <button id="generate-btn" class="btn btn--primary btn--wide" type="button">Gerar projeto</button>
+      <button id="plan-btn" class="btn btn--primary btn--wide" type="button">Ver plano de geração</button>
+
+      <div id="plan" hidden>
+        <h3 class="section-title">Plano de geração</h3>
+        <div id="plan-body" class="plan-body"></div>
+        <div class="plan-actions">
+          <button id="confirm-btn" class="btn btn--primary" type="button">Confirmar e gerar</button>
+          <button id="adjust-btn" class="btn btn--ghost" type="button">Ajustar</button>
+        </div>
+      </div>
+
       <div id="progress" class="progress" hidden>
         <div class="status">
           <span class="dot" id="gen-dot"></span>
           <span id="gen-text">Preparando…</span>
         </div>
       </div>
+
       <div id="result" hidden>
-        <button id="download-btn" class="btn btn--primary btn--wide" type="button">Baixar projeto (.zip)</button>
+        <h3 class="section-title">Estrutura do projeto gerado</h3>
+        <pre id="files" class="files"></pre>
+        <button id="save-btn" class="btn btn--primary btn--wide" type="button">Salvar na pasta Downloads</button>
         <p class="hint" id="result-hint"></p>
       </div>
+
       <p class="hint hint--left" id="run-error" hidden></p>
     </section>
 

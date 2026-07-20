@@ -58,3 +58,35 @@ select option { background: var(--navy-800); }
 .progress { margin-top: 16px; }
 #result { margin-top: 8px; }
 #run-error { color: var(--bad); }
+
+.check {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px;
+  font-size: 13px; color: var(--slate-300); cursor: pointer;
+}
+.check input[type="checkbox"] { width: auto; accent-color: var(--cyan-400); flex: none; }
+
+.section-title { font-size: 16px; margin: 16px 0 10px; letter-spacing: -0.01em; }
+.muted { color: var(--slate-400); font-size: 13px; }
+.plan-body { font-size: 14px; line-height: 1.55; }
+.plan-body p { margin: 4px 0; }
+.plan-body h4 {
+  margin: 14px 0 6px; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate-400);
+}
+.plan-body ul { margin: 0; padding-left: 18px; max-height: 220px; overflow-y: auto; }
+.plan-body li { margin: 2px 0; color: var(--slate-300); }
+.plan-raw { margin-top: 14px; }
+.plan-raw summary { cursor: pointer; font-size: 13px; color: var(--slate-400); }
+.plan-raw pre {
+  margin-top: 8px; padding: 12px; border-radius: 10px; font-size: 11px; line-height: 1.4;
+  background: rgba(2, 8, 23, 0.5); max-height: 280px; overflow: auto;
+  -webkit-user-select: text; user-select: text;
+}
+.plan-actions { display: flex; gap: 10px; margin-top: 14px; }
+.plan-actions .btn--primary { flex: 1; margin-top: 0; }
+
+.files {
+  padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.5;
+  background: rgba(2, 8, 23, 0.5); max-height: 300px; overflow: auto;
+  white-space: pre; -webkit-user-select: text; user-select: text;
+}
