@@ -329,6 +329,84 @@ function syncProviderFields() {
   ui.provBedrock.classList.toggle('hidden', p !== 'bedrock');
 }
 
+// --- dynamic model listing (BYOK) ---------------------------------------------
+
+function modelListRequest(provider) {
+  if (provider === 'anthropic') {
+    return { llmProvider: 'anthropic', anthropicApiKey: el('anthropicKey').value || null };
+  }
+  if (provider === 'bedrock') {
+    return {
+      llmProvider: 'bedrock',
+      bedrockRegion: el('bedrockRegion').value.trim() || null,
+      bedrockAccessKeyId: el('bedrockKeyId').value || null,
+      bedrockSecretAccessKey: el('bedrockSecret').value || null,
+    };
+  }
+  return {
+    llmProvider: 'openai-compatible',
+    openaiBaseUrl: el('openaiBaseUrl').value.trim() || null,
+    openaiApiKey: el('openaiKey').value || null,
+  };
+}
+
+// Sets a select's value, adding the option first when it isn't in the list
+// (e.g. a previously fetched model id restored from the last generation).
+function setSelectValue(select, value) {
+  if (![...select.options].some((o) => o.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  }
+  select.value = value;
+}
+
+// Rebuilds a <select> with the fetched models, keeping the current selection.
+function populateModelSelect(select, models) {
+  const current = select.value;
+  select.innerHTML = '';
+  for (const m of models) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name && m.name !== m.id ? `${m.name} (${m.id})` : m.id;
+    select.appendChild(opt);
+  }
+  if (current && models.some((m) => m.id === current)) select.value = current;
+}
+
+async function fetchModels(provider, button, statusEl) {
+  button.disabled = true;
+  button.textContent = 'Consultando o provider…';
+  statusEl.hidden = true;
+  try {
+    const r = await api.listLlmModels(modelListRequest(provider));
+    statusEl.hidden = false;
+    if (!r.ok) {
+      statusEl.textContent = '⚠ ' + (r.error || 'Falha ao listar modelos.');
+      statusEl.classList.add('models-status--error');
+      return;
+    }
+    statusEl.classList.remove('models-status--error');
+    if (provider === 'openai-compatible') {
+      const list = el('openaiModelsList');
+      list.innerHTML = '';
+      for (const m of r.models) {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        list.appendChild(opt);
+      }
+      statusEl.textContent = `${r.models.length} modelo(s) disponível(is) — digite ou escolha na lista.`;
+    } else {
+      populateModelSelect(el(provider === 'anthropic' ? 'anthropicModel' : 'bedrockModel'), r.models);
+      statusEl.textContent = `${r.models.length} modelo(s) disponível(is) com estas credenciais.`;
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Buscar modelos disponíveis';
+  }
+}
+
 // --- generation ---------------------------------------------------------------
 
 // The LLM inference (including Anthropic/Bedrock BYOK) only engages when
@@ -610,11 +688,11 @@ function applyInputs(saved) {
   el('openaiModel').value = saved.openaiModel || '';
   el('openaiKey').value = saved.openaiKey || '';
   el('anthropicKey').value = saved.anthropicKey || '';
-  if (saved.anthropicModel) el('anthropicModel').value = saved.anthropicModel;
+  if (saved.anthropicModel) setSelectValue(el('anthropicModel'), saved.anthropicModel);
   el('bedrockRegion').value = saved.bedrockRegion || '';
   el('bedrockKeyId').value = saved.bedrockKeyId || '';
   el('bedrockSecret').value = saved.bedrockSecret || '';
-  if (saved.bedrockModel) el('bedrockModel').value = saved.bedrockModel;
+  if (saved.bedrockModel) setSelectValue(el('bedrockModel'), saved.bedrockModel);
   ui.deepContext.checked = saved.deepContext !== false;
   syncProviderFields();
   if (Array.isArray(saved.routeCandidates) && saved.routeCandidates.length) {
@@ -635,6 +713,12 @@ async function init() {
   ui.extractBtn.addEventListener('click', detectScreens);
   ui.clearBtn.addEventListener('click', clearScreens);
   ui.provider.addEventListener('change', syncProviderFields);
+  el('fetch-anthropic-models').addEventListener('click', () =>
+    fetchModels('anthropic', el('fetch-anthropic-models'), el('anthropic-models-status')));
+  el('fetch-bedrock-models').addEventListener('click', () =>
+    fetchModels('bedrock', el('fetch-bedrock-models'), el('bedrock-models-status')));
+  el('fetch-openai-models').addEventListener('click', () =>
+    fetchModels('openai-compatible', el('fetch-openai-models'), el('openai-models-status')));
   ui.planBtn.addEventListener('click', showPlan);
   ui.confirmBtn.addEventListener('click', generate);
   ui.adjustBtn.addEventListener('click', () => { ui.plan.hidden = true; pendingRequest = null; });

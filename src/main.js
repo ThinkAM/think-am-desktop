@@ -493,6 +493,27 @@ ipcMain.handle('gen:save', async () => {
   }
 });
 
+// Lists the LLM models available with the user's BYOK credentials (server-side
+// listing — Bedrock requires AWS SigV4 signing the client can't do alone).
+ipcMain.handle('llm:models', async (_e, request) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/llm/models`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify(request || {}),
+    });
+    if (!r.ok) return { ok: false, error: extractApiError(r.body, r.status) };
+    const body = r.body || {};
+    if (!body.ok) return { ok: false, error: body.error || 'Falha ao listar modelos.' };
+    return { ok: true, models: body.models || [] };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
 // Persist the last generation inputs so the user can reuse them next time.
 function wizardInputsPath() {
   return path.join(app.getPath('userData'), 'wizard-last.json');

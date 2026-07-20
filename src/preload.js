@@ -28,4 +28,5 @@ contextBridge.exposeInMainWorld('thinkam', {
   genSave: () => ipcRenderer.invoke('gen:save'),
   saveWizardInputs: (inputs) => ipcRenderer.invoke('wizard:saveInputs', inputs),
   loadWizardInputs: () => ipcRenderer.invoke('wizard:loadInputs'),
+  listLlmModels: (request) => ipcRenderer.invoke('llm:models', request),
 });

@@ -95,8 +95,13 @@
           </div>
           <div id="prov-openai" class="custom hidden">
             <div class="field"><label for="openaiBaseUrl">Base URL</label><input id="openaiBaseUrl" type="url" placeholder="http://localhost:11434/v1" /></div>
-            <div class="field"><label for="openaiModel">Modelo</label><input id="openaiModel" type="text" placeholder="qwen2.5-coder:7b" /></div>
             <div class="field"><label for="openaiKey">API key (opcional)</label><input id="openaiKey" type="password" placeholder="sk-…" /></div>
+            <div class="field"><label for="openaiModel">Modelo</label>
+              <input id="openaiModel" type="text" list="openaiModelsList" placeholder="qwen2.5-coder:7b" />
+              <datalist id="openaiModelsList"></datalist>
+            </div>
+            <button id="fetch-openai-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+            <p class="hint hint--left models-status" id="openai-models-status" hidden></p>
           </div>
           <div id="prov-anthropic" class="custom hidden">
             <div class="field"><label for="anthropicKey">Anthropic API key</label><input id="anthropicKey" type="password" placeholder="sk-ant-…" /></div>
@@ -107,6 +112,8 @@
                 <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido/barato)</option>
               </select>
             </div>
+            <button id="fetch-anthropic-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+            <p class="hint hint--left models-status" id="anthropic-models-status" hidden></p>
           </div>
           <div id="prov-bedrock" class="custom hidden">
             <div class="field"><label for="bedrockRegion">AWS region</label><input id="bedrockRegion" type="text" placeholder="us-east-1" /></div>
@@ -119,6 +126,8 @@
                 <option value="anthropic.claude-haiku-4-5">Claude Haiku 4.5</option>
               </select>
             </div>
+            <button id="fetch-bedrock-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+            <p class="hint hint--left models-status" id="bedrock-models-status" hidden></p>
           </div>
           <p class="hint hint--left">A chave vale só para esta geração e não entra nos artefatos do projeto. Providers Anthropic/Bedrock exigem plano Architect.</p>
         </section>
