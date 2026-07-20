@@ -1,8 +1,62 @@
 /* Native generation wizard — extends launcher.css */
 
-.shell--wide { max-width: 860px; }
+.shell--wide { max-width: 960px; }
 
 .brand { align-items: center; }
+
+/* --- horizontal stepper (project → figma → IA → gerar), plane marks progress --- */
+.stepper { position: relative; margin: 4px 0 32px; padding: 0 14px; }
+.stepper__track {
+  position: absolute; left: 28px; right: 28px; top: 14px;
+  height: 3px; background: rgba(148, 163, 184, 0.16); border-radius: 999px;
+}
+.stepper__fill {
+  position: absolute; left: 0; top: 0; height: 100%; width: 0;
+  background: linear-gradient(90deg, var(--cyan-400), var(--blue-600));
+  border-radius: 999px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.stepper__plane {
+  position: absolute; top: 14px; left: 0; font-size: 18px; line-height: 1;
+  transform: translate(-50%, -50%) rotate(90deg);
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  filter: drop-shadow(0 2px 6px rgba(34, 211, 238, 0.55));
+}
+.stepper__list {
+  position: relative; list-style: none; display: flex; justify-content: space-between;
+  padding: 0; margin: 0;
+}
+.stepper__item {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  cursor: default; user-select: none; flex: none;
+}
+.stepper__dot {
+  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-weight: 800; background: var(--navy-800);
+  border: 2px solid rgba(148, 163, 184, 0.3); color: var(--slate-400);
+  transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+.stepper__item.active .stepper__dot {
+  border-color: var(--cyan-400); color: #041019; background: var(--cyan-400);
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.15);
+}
+.stepper__item.done .stepper__dot { border-color: var(--cyan-400); background: transparent; color: var(--cyan-300); }
+.stepper__label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--slate-500); white-space: nowrap;
+}
+.stepper__item.active .stepper__label { color: var(--cyan-300); }
+.stepper__item.done .stepper__label { color: var(--slate-400); }
+
+/* --- per-step Próximo/Voltar navigation --- */
+.step-nav { display: flex; gap: 10px; margin-top: 18px; }
+.step-nav--end { justify-content: flex-end; }
+.step-nav--start { margin-top: 0; margin-bottom: 18px; }
+.step-nav .btn { margin-top: 0; width: auto; padding-left: 22px; padding-right: 22px; }
+
+/* --- side-by-side fields where a step has room to spare --- */
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.field-grid .field:only-child,
+.field-grid .field:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
 .card { margin-bottom: 16px; }
 .card__title {

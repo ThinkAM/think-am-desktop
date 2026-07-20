@@ -18,6 +18,21 @@
       </div>
     </header>
 
+    <nav class="stepper" id="stepper" aria-label="Progresso da geração" hidden>
+      <div class="stepper__track">
+        <div class="stepper__fill" id="stepper-fill"></div>
+        <div class="stepper__plane" id="stepper-plane">✈</div>
+      </div>
+      <ol class="stepper__list">
+        <li class="stepper__item" data-step="1"><span class="stepper__dot">1</span><span class="stepper__label">Projeto</span></li>
+        <li class="stepper__item" data-step="2"><span class="stepper__dot">2</span><span class="stepper__label">Figma</span></li>
+        <li class="stepper__item" data-step="3"><span class="stepper__dot">3</span><span class="stepper__label">IA</span></li>
+        <li class="stepper__item" data-step="4"><span class="stepper__dot">4</span><span class="stepper__label">Gerar</span></li>
+      </ol>
+    </nav>
+
+    <p class="hint hint--left" id="run-error" hidden></p>
+
     <!-- Gate: shown when not logged in -->
     <section id="gate" class="card" hidden>
       <h2 id="gate-title">Faça login para gerar projetos</h2>
@@ -58,6 +73,9 @@
         </div>
         <p class="hint hint--left">Ao final da geração, o projeto é extraído aqui e as dependências são instaladas automaticamente (sem passo manual).</p>
       </div>
+      <div class="step-nav step-nav--end">
+        <button class="btn btn--primary" type="button" data-next>Próximo →</button>
+      </div>
     </section>
 
     <!-- Step 2: local Figma (optional) -->
@@ -88,65 +106,79 @@
         </label>
         <p class="hint hint--left" id="detect-hint" hidden></p>
       </div>
+      <div class="step-nav">
+        <button class="btn btn--ghost" type="button" data-back>← Voltar</button>
+        <button class="btn btn--primary" type="button" data-next>Próximo →</button>
+      </div>
     </section>
 
     <!-- Step 3: AI inference (optional, BYOK) -->
-    <section id="ai-card" hidden>
-      <details class="advanced">
-        <summary>Inferência de IA (BYOK) — opcional</summary>
-        <section class="card">
-          <div class="field">
-            <label for="provider">Provider de LLM</label>
-            <select id="provider">
-              <option value="">Nenhum (geração determinística)</option>
-              <option value="openai-compatible">OpenAI-compatible (Ollama, LM Studio, DeepSeek…)</option>
-              <option value="anthropic">Anthropic — Claude (Architect)</option>
-              <option value="bedrock">Amazon Bedrock — Claude (Architect)</option>
+    <section id="ai-card" class="card" hidden>
+      <h2 class="card__title"><span class="stepnum">3</span> Inferência de IA (BYOK) <span class="badge">opcional</span></h2>
+      <div class="field">
+        <label for="provider">Provider de LLM</label>
+        <select id="provider">
+          <option value="">Nenhum (geração determinística)</option>
+          <option value="openai-compatible">OpenAI-compatible (Ollama, LM Studio, DeepSeek…)</option>
+          <option value="anthropic">Anthropic — Claude (Architect)</option>
+          <option value="bedrock">Amazon Bedrock — Claude (Architect)</option>
+        </select>
+      </div>
+      <div id="prov-openai" class="custom hidden">
+        <div class="field-grid">
+          <div class="field"><label for="openaiBaseUrl">Base URL</label><input id="openaiBaseUrl" type="url" placeholder="http://localhost:11434/v1" /></div>
+          <div class="field"><label for="openaiKey">API key (opcional)</label><input id="openaiKey" type="password" placeholder="sk-…" /></div>
+          <div class="field"><label for="openaiModel">Modelo</label>
+            <input id="openaiModel" type="text" list="openaiModelsList" placeholder="qwen2.5-coder:7b" />
+            <datalist id="openaiModelsList"></datalist>
+          </div>
+        </div>
+        <button id="fetch-openai-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+        <p class="hint hint--left models-status" id="openai-models-status" hidden></p>
+      </div>
+      <div id="prov-anthropic" class="custom hidden">
+        <div class="field-grid">
+          <div class="field"><label for="anthropicKey">Anthropic API key</label><input id="anthropicKey" type="password" placeholder="sk-ant-…" /></div>
+          <div class="field"><label for="anthropicModel">Modelo</label>
+            <select id="anthropicModel">
+              <option value="claude-opus-4-8">Claude Opus 4.8 (mais capaz)</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5 (equilíbrio)</option>
+              <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido/barato)</option>
             </select>
           </div>
-          <div id="prov-openai" class="custom hidden">
-            <div class="field"><label for="openaiBaseUrl">Base URL</label><input id="openaiBaseUrl" type="url" placeholder="http://localhost:11434/v1" /></div>
-            <div class="field"><label for="openaiKey">API key (opcional)</label><input id="openaiKey" type="password" placeholder="sk-…" /></div>
-            <div class="field"><label for="openaiModel">Modelo</label>
-              <input id="openaiModel" type="text" list="openaiModelsList" placeholder="qwen2.5-coder:7b" />
-              <datalist id="openaiModelsList"></datalist>
-            </div>
-            <button id="fetch-openai-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
-            <p class="hint hint--left models-status" id="openai-models-status" hidden></p>
+        </div>
+        <button id="fetch-anthropic-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+        <p class="hint hint--left models-status" id="anthropic-models-status" hidden></p>
+      </div>
+      <div id="prov-bedrock" class="custom hidden">
+        <div class="field-grid">
+          <div class="field"><label for="bedrockRegion">AWS region</label><input id="bedrockRegion" type="text" placeholder="us-east-1" /></div>
+          <div class="field"><label for="bedrockKeyId">AWS Access Key ID</label><input id="bedrockKeyId" type="password" placeholder="AKIA…" /></div>
+          <div class="field"><label for="bedrockSecret">AWS Secret Access Key</label><input id="bedrockSecret" type="password" placeholder="••••••••" /></div>
+          <div class="field"><label for="bedrockModel">Modelo</label>
+            <select id="bedrockModel">
+              <option value="anthropic.claude-opus-4-8">Claude Opus 4.8</option>
+              <option value="anthropic.claude-sonnet-5">Claude Sonnet 5</option>
+              <option value="anthropic.claude-haiku-4-5">Claude Haiku 4.5</option>
+            </select>
           </div>
-          <div id="prov-anthropic" class="custom hidden">
-            <div class="field"><label for="anthropicKey">Anthropic API key</label><input id="anthropicKey" type="password" placeholder="sk-ant-…" /></div>
-            <div class="field"><label for="anthropicModel">Modelo</label>
-              <select id="anthropicModel">
-                <option value="claude-opus-4-8">Claude Opus 4.8 (mais capaz)</option>
-                <option value="claude-sonnet-5">Claude Sonnet 5 (equilíbrio)</option>
-                <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido/barato)</option>
-              </select>
-            </div>
-            <button id="fetch-anthropic-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
-            <p class="hint hint--left models-status" id="anthropic-models-status" hidden></p>
-          </div>
-          <div id="prov-bedrock" class="custom hidden">
-            <div class="field"><label for="bedrockRegion">AWS region</label><input id="bedrockRegion" type="text" placeholder="us-east-1" /></div>
-            <div class="field"><label for="bedrockKeyId">AWS Access Key ID</label><input id="bedrockKeyId" type="password" placeholder="AKIA…" /></div>
-            <div class="field"><label for="bedrockSecret">AWS Secret Access Key</label><input id="bedrockSecret" type="password" placeholder="••••••••" /></div>
-            <div class="field"><label for="bedrockModel">Modelo</label>
-              <select id="bedrockModel">
-                <option value="anthropic.claude-opus-4-8">Claude Opus 4.8</option>
-                <option value="anthropic.claude-sonnet-5">Claude Sonnet 5</option>
-                <option value="anthropic.claude-haiku-4-5">Claude Haiku 4.5</option>
-              </select>
-            </div>
-            <button id="fetch-bedrock-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
-            <p class="hint hint--left models-status" id="bedrock-models-status" hidden></p>
-          </div>
-          <p class="hint hint--left">A chave vale só para esta geração e não entra nos artefatos do projeto. Providers Anthropic/Bedrock exigem plano Architect.</p>
-        </section>
-      </details>
+        </div>
+        <button id="fetch-bedrock-models" class="btn btn--ghost btn--wide" type="button">Buscar modelos disponíveis</button>
+        <p class="hint hint--left models-status" id="bedrock-models-status" hidden></p>
+      </div>
+      <p class="hint hint--left">A chave vale só para esta geração e não entra nos artefatos do projeto. Providers Anthropic/Bedrock exigem plano Architect.</p>
+      <div class="step-nav">
+        <button class="btn btn--ghost" type="button" data-back>← Voltar</button>
+        <button class="btn btn--primary" type="button" data-next>Próximo →</button>
+      </div>
     </section>
 
     <!-- Plan preview → generate → structure preview → save -->
     <section id="run-card" class="card" hidden>
+      <h2 class="card__title"><span class="stepnum">4</span> Gerar</h2>
+      <div class="step-nav step-nav--start" id="run-back-nav">
+        <button class="btn btn--ghost" type="button" data-back>← Voltar</button>
+      </div>
       <button id="plan-btn" class="btn btn--primary btn--wide" type="button">Ver plano de geração</button>
 
       <div id="plan" hidden>
@@ -172,8 +204,6 @@
         <p class="hint hint--left" id="install-status" hidden></p>
         <button id="retry-local-btn" class="btn btn--primary btn--wide" type="button" hidden>Tentar novamente (extração + instalação local)</button>
       </div>
-
-      <p class="hint hint--left" id="run-error" hidden></p>
     </section>
 
     <footer class="foot">

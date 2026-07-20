@@ -20,6 +20,9 @@ const ui = {
   modeTemplate: el('mode-template'),
   modeStarter: el('mode-starter'),
   modeHint: el('mode-hint'),
+  stepper: el('stepper'),
+  stepperFill: el('stepper-fill'),
+  stepperPlane: el('stepper-plane'),
   chooseFolderBtn: el('choose-folder-btn'),
   folderDot: el('folder-dot'),
   folderText: el('folder-text'),
@@ -38,6 +41,7 @@ const ui = {
   provAnthropic: el('prov-anthropic'),
   provBedrock: el('prov-bedrock'),
   runCard: el('run-card'),
+  runBackNav: el('run-back-nav'),
   planBtn: el('plan-btn'),
   plan: el('plan'),
   planBody: el('plan-body'),
@@ -57,6 +61,30 @@ const ui = {
   version: el('version'),
   siteLink: el('site-link'),
 };
+
+// --- horizontal stepper: project → figma → IA → gerar --------------------------
+
+const STEP_SECTIONS = [ui.projectCard, ui.figmaCard, ui.aiCard, ui.runCard];
+let currentStep = 1;
+
+function updateStepper() {
+  document.querySelectorAll('.stepper__item').forEach((item) => {
+    const n = Number(item.dataset.step);
+    item.classList.toggle('active', n === currentStep);
+    item.classList.toggle('done', n < currentStep);
+  });
+  const pct = ((currentStep - 1) / (STEP_SECTIONS.length - 1)) * 100;
+  ui.stepperFill.style.width = pct + '%';
+  ui.stepperPlane.style.left = pct + '%';
+}
+
+function goToStep(n) {
+  if (n < 1 || n > STEP_SECTIONS.length) return;
+  currentStep = n;
+  STEP_SECTIONS.forEach((section, i) => { section.hidden = i + 1 !== n; });
+  updateStepper();
+  ui.projectCard.closest('main').scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 let outputMode = 'template';
 let routeCandidates = []; // { id, name, route, included }
@@ -580,6 +608,7 @@ function failGeneration(message) {
   showError(message || 'Erro desconhecido na geração.');
   ui.confirmBtn.disabled = false;
   ui.confirmBtn.textContent = 'Tentar novamente';
+  ui.runBackNav.hidden = false;
 }
 
 async function showStructure(downloadUrl) {
@@ -604,6 +633,7 @@ async function showStructure(downloadUrl) {
 
   ui.confirmBtn.disabled = false;
   ui.confirmBtn.textContent = 'Gerar novamente';
+  ui.runBackNav.hidden = false;
 }
 
 function setChosenFolder(folderPath) {
@@ -703,8 +733,10 @@ function pollJob(jobId) {
 async function generate() {
   if (!pendingRequest) return;
   if (!lastSaveDir) {
-    showError('Escolha a pasta de destino (Passo 1) antes de gerar.');
-    ui.chooseFolderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Shouldn't normally happen — Step 1 already requires this before you can
+    // reach Step 4 — but defend against pendingRequest surviving a folder reset.
+    showError('Escolha a pasta de destino antes de gerar.');
+    goToStep(1);
     return;
   }
 
@@ -792,6 +824,23 @@ async function init() {
   ui.gateCta.addEventListener('click', () => api.navigate('launcher'));
   ui.modeTemplate.addEventListener('click', () => setOutputMode('template'));
   ui.modeStarter.addEventListener('click', () => setOutputMode('starter-kit'));
+  document.querySelectorAll('[data-next]').forEach((btn) => btn.addEventListener('click', () => {
+    if (currentStep === 1) {
+      if (!ui.projName.value.trim()) {
+        showError('Dê um nome ao projeto antes de continuar.');
+        ui.projName.focus();
+        return;
+      }
+      if (!lastSaveDir) {
+        showError('Escolha a pasta de destino antes de continuar.');
+        ui.chooseFolderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+    }
+    showError('');
+    goToStep(currentStep + 1);
+  }));
+  document.querySelectorAll('[data-back]').forEach((btn) => btn.addEventListener('click', () => goToStep(currentStep - 1)));
   ui.chooseFolderBtn.addEventListener('click', chooseFolder);
   ui.extractBtn.addEventListener('click', detectScreens);
   ui.clearBtn.addEventListener('click', clearScreens);
@@ -821,10 +870,8 @@ async function init() {
   }
 
   ui.acctLine.textContent = (auth.user.email || auth.user.name || 'Conta') + (auth.architect ? ' · Architect' : '');
-  ui.projectCard.hidden = false;
-  ui.figmaCard.hidden = false;
-  ui.aiCard.hidden = false;
-  ui.runCard.hidden = false;
+  ui.stepper.hidden = false;
+  goToStep(1);
 
   // Offer to restore the previous generation's inputs.
   try {
