@@ -47,6 +47,7 @@ const ui = {
   files: el('files'),
   saveBtn: el('save-btn'),
   resultHint: el('result-hint'),
+  installStatus: el('install-status'),
   runError: el('run-error'),
   reuseBtn: el('reuse-btn'),
   deepContext: el('deepContext'),
@@ -58,6 +59,7 @@ let outputMode = 'template';
 let routeCandidates = []; // { id, name, route, included }
 let jobTimer = null;
 let pendingRequest = null; // request shown in the plan preview; generation uses exactly this
+let lastSaveDir = null; // remembered across saves within this session, pre-fills the folder picker
 const contextCache = new Map(); // figma nodeId → design-context snippet
 
 const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : ''); };
@@ -670,15 +672,38 @@ async function generate() {
 }
 
 async function saveZip() {
+  const picked = await api.genPickFolder(lastSaveDir);
+  if (!picked.ok) return; // user canceled — leave everything as-is
+
   ui.saveBtn.disabled = true;
-  ui.saveBtn.textContent = 'Salvando…';
+  ui.saveBtn.textContent = 'Extraindo…';
+  ui.installStatus.hidden = true;
   try {
-    const r = await api.genSave();
-    if (r.ok) ui.resultHint.textContent = `Salvo em ${r.path}`;
-    else showError(r.error || 'Falha ao salvar.');
+    const r = await api.genSave(picked.path);
+    if (!r.ok) { showError(r.error || 'Falha ao salvar.'); return; }
+
+    lastSaveDir = picked.path;
+    saveInputs(); // remember the folder immediately, don't wait for the next generation
+    ui.resultHint.textContent = `Salvo em ${r.path} (${r.fileCount} arquivo(s))`;
+
+    // The heavy dependency-resolution work runs on the user's machine, not
+    // the server — the server only validates that the packages resolve.
+    ui.installStatus.hidden = false;
+    ui.installStatus.className = 'hint hint--left muted';
+    ui.installStatus.textContent = 'Instalando dependências localmente (apps/api, apps/web)… isso pode levar 1-2 minutos.';
+    const install = await api.genNpmInstall(r.path);
+    if (install.ok) {
+      ui.installStatus.className = 'hint hint--left plan-ok';
+      ui.installStatus.textContent = '✓ Dependências instaladas com sucesso — o projeto está pronto para rodar.';
+    } else {
+      const failed = (install.results || []).filter((x) => !x.ok);
+      const detail = failed.map((x) => `${x.app}: ${x.error}`).join(' | ') || install.error || 'erro desconhecido';
+      ui.installStatus.className = 'hint hint--left plan-bad';
+      ui.installStatus.textContent = `⚠ npm install falhou para ${failed.map((x) => x.app).join(', ') || 'o projeto'} — rode manualmente e revise: ${detail}`;
+    }
   } finally {
     ui.saveBtn.disabled = false;
-    ui.saveBtn.textContent = 'Salvar na pasta Downloads';
+    ui.saveBtn.textContent = 'Escolher pasta e salvar';
   }
 }
 
@@ -701,6 +726,7 @@ function collectInputs() {
     bedrockModel: el('bedrockModel').value,
     deepContext: ui.deepContext.checked,
     routeCandidates,
+    saveDir: lastSaveDir,
   };
 }
 
@@ -724,6 +750,7 @@ function applyInputs(saved) {
   el('bedrockSecret').value = saved.bedrockSecret || '';
   if (saved.bedrockModel) setSelectValue(el('bedrockModel'), saved.bedrockModel);
   ui.deepContext.checked = saved.deepContext !== false;
+  if (saved.saveDir) lastSaveDir = saved.saveDir;
   syncProviderFields();
   if (Array.isArray(saved.routeCandidates) && saved.routeCandidates.length) {
     routeCandidates = saved.routeCandidates;

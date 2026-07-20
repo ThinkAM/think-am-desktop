@@ -1,9 +1,11 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, session, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
+const zlib = require('node:zlib');
+const { spawn } = require('node:child_process');
 const { FigmaMcpClient, DEFAULT_MCP_URL } = require('./figma-mcp');
 
 const IS_DEV = process.argv.includes('--dev');
@@ -464,8 +466,103 @@ function listZipEntries(buffer) {
   return names;
 }
 
+// Extracts every entry of a ZIP buffer onto disk under destDir. Reuses the
+// central-directory scan from listZipEntries but also reads each entry's
+// LOCAL header (name/extra length can differ from the central directory)
+// to find the real compressed-data offset, then either copies it (method 0,
+// stored) or inflates it (method 8, deflate) — the only two methods project
+// zips use. No external dependency, matching listZipEntries above.
+function extractZip(buffer, destDir) {
+  const EOCD = 0x06054b50;
+  const CDFH = 0x02014b50;
+  const LFH = 0x04034b50;
+  let eocd = -1;
+  const scanStart = Math.max(0, buffer.length - 65557);
+  for (let i = buffer.length - 22; i >= scanStart; i--) {
+    if (buffer.readUInt32LE(i) === EOCD) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('Arquivo ZIP inválido ou corrompido.');
+
+  const count = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  let fileCount = 0;
+
+  for (let n = 0; n < count && offset + 46 <= buffer.length; n++) {
+    if (buffer.readUInt32LE(offset) !== CDFH) break;
+    const method = buffer.readUInt16LE(offset + 10);
+    const compSize = buffer.readUInt32LE(offset + 20);
+    const nameLen = buffer.readUInt16LE(offset + 28);
+    const extraLen = buffer.readUInt16LE(offset + 30);
+    const commentLen = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLen);
+    offset += 46 + nameLen + extraLen + commentLen;
+
+    const destPath = path.join(destDir, name);
+    if (!destPath.startsWith(path.normalize(destDir))) continue; // guard against zip-slip
+
+    if (name.endsWith('/')) {
+      fs.mkdirSync(destPath, { recursive: true });
+      continue;
+    }
+
+    if (buffer.readUInt32LE(localHeaderOffset) !== LFH) continue;
+    const localNameLen = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLen = buffer.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
+    const compressed = buffer.subarray(dataStart, dataStart + compSize);
+    const content = method === 8 ? zlib.inflateRawSync(compressed) : compressed;
+
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.writeFileSync(destPath, content);
+    fileCount++;
+  }
+  return fileCount;
+}
+
+ipcMain.handle('gen:pickFolder', async (_e, defaultPath) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Escolha onde salvar o projeto',
+    defaultPath: defaultPath && fs.existsSync(defaultPath) ? defaultPath : app.getPath('documents'),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
+  return { ok: true, path: result.filePaths[0] };
+});
+
+function findNpmBinary() {
+  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+function runNpmInstall(cwd) {
+  return new Promise((resolve) => {
+    // On Windows, npm is npm.cmd — spawning a .cmd with shell:false throws
+    // EINVAL synchronously (before even reaching the 'error' event), so this
+    // must go through the shell there. Args/cwd are fixed literals (no user
+    // input reaches the shell), so this is safe despite Node's generic
+    // shell:true warning. Unix doesn't need this — npm is a real executable.
+    let child;
+    try {
+      child = spawn(findNpmBinary(), ['install'], { cwd, shell: process.platform === 'win32' });
+    } catch (err) {
+      resolve({ ok: false, error: `Não foi possível iniciar o npm (${err.message}).` });
+      return;
+    }
+    let output = '';
+    child.stdout.on('data', (d) => { output += d.toString(); });
+    child.stderr.on('data', (d) => { output += d.toString(); });
+    child.on('error', (err) => resolve({ ok: false, error: `npm não encontrado no PATH local (${err.message}).` }));
+    child.on('close', (code) => {
+      if (code === 0) return resolve({ ok: true });
+      resolve({ ok: false, error: output.trim().slice(-1500) || `npm install falhou (código ${code}).` });
+    });
+  });
+}
+
 // Two-phase download: fetch keeps the zip in memory and returns its file
-// structure for preview; save writes it to the OS Downloads folder.
+// structure for preview; save extracts it onto disk in a user-chosen folder
+// and runs `npm install` locally — the heavy dependency-resolution work
+// happens on the user's machine instead of the (memory-constrained) server.
 let lastZip = null; // { fileName, buffer }
 
 ipcMain.handle('gen:fetch', async (_e, downloadUrl) => {
@@ -481,16 +578,39 @@ ipcMain.handle('gen:fetch', async (_e, downloadUrl) => {
   }
 });
 
-ipcMain.handle('gen:save', async () => {
+ipcMain.handle('gen:save', async (_e, destDir) => {
   if (!lastZip) return { ok: false, error: 'Nada para salvar — gere o projeto primeiro.' };
   try {
-    const target = path.join(app.getPath('downloads'), lastZip.fileName);
-    fs.writeFileSync(target, lastZip.buffer);
+    const baseDir = destDir && fs.existsSync(destDir) ? destDir : app.getPath('downloads');
+    const projectSlug = lastZip.fileName.replace(/\.zip$/i, '');
+    const target = path.join(baseDir, projectSlug);
+    fs.mkdirSync(target, { recursive: true });
+    const fileCount = extractZip(lastZip.buffer, target);
     shell.showItemInFolder(target);
-    return { ok: true, path: target };
+    return { ok: true, path: target, fileCount };
   } catch (err) {
     return { ok: false, error: String((err && err.message) || err) };
   }
+});
+
+// Runs `npm install` locally for each app under the extracted project — the
+// "trabalho pesado" of dependency resolution/download happens on the user's
+// machine, not the server. Sequential (not parallel) to avoid doubling CPU/
+// network load on the user's machine and to keep progress reporting simple.
+ipcMain.handle('gen:npmInstall', async (_e, projectDir) => {
+  const apps = [
+    { key: 'api', dir: path.join(projectDir, 'apps', 'api') },
+    { key: 'web', dir: path.join(projectDir, 'apps', 'web') },
+  ].filter((a) => fs.existsSync(path.join(a.dir, 'package.json')));
+
+  if (!apps.length) return { ok: false, error: 'Nenhum apps/api ou apps/web com package.json encontrado.' };
+
+  const results = [];
+  for (const a of apps) {
+    const r = await runNpmInstall(a.dir);
+    results.push({ app: a.key, ...r });
+  }
+  return { ok: results.every((r) => r.ok), results };
 });
 
 // Lists the LLM models available with the user's BYOK credentials (server-side
