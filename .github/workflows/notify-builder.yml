@@ -1,0 +1,37 @@
+name: Notify Builder of New Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify:
+    name: Notify Builder Repository
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Remove 'v' prefix from tag (v1.4.2 -> 1.4.2)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 Desktop version: $VERSION"
+      
+      - name: Trigger Builder Update
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.BUILDER_DISPATCH_TOKEN }}
+          repository: ThinkAM/Builder
+          event-type: desktop-version-updated
+          client-payload: |
+            {
+              "version": "${{ steps.version.outputs.version }}",
+              "release_url": "${{ github.event.release.html_url }}",
+              "tag": "${{ github.ref_name }}"
+            }
+      
+      - name: Summary
+        run: |
+          echo "✅ Builder notified of desktop version ${{ steps.version.outputs.version }}"
+          echo "📋 Release: ${{ github.event.release.html_url }}"
