@@ -127,6 +127,15 @@ function mcpResultText(result) {
     .join('\n');
 }
 
+// Strips MCP boilerplate that pollutes generation prompts: the selection
+// preamble and the agent-facing "call get_design_context" instruction.
+function cleanMcpText(text) {
+  return String(text || '')
+    .replace(/^Currently selected nodes:[\s\S]*?(?=<)/, '')
+    .replace(/IMPORTANT: After you call this tool[\s\S]*$/i, '')
+    .trim();
+}
+
 const FRAME_TYPES = /^(frame|component|component[-_]set|instance)$/i;
 
 // Accepts a raw node id ("48557:657" / "48557-657") or a full Figma URL with
@@ -338,11 +347,11 @@ async function buildScreenPrompt(candidate, progress) {
     let text = '';
     const context = await api.figmaExtract('get_design_context', { nodeId: candidate.id });
     if (context.ok) {
-      text = mcpResultText(context.result).slice(0, 3500);
+      text = cleanMcpText(mcpResultText(context.result)).slice(0, 3500);
     } else {
       const metadata = await api.figmaExtract('get_metadata', { nodeId: candidate.id });
       if (metadata.ok) {
-        text = 'Estrutura da tela (nomes e hierarquia dos elementos):\n' + mcpResultText(metadata.result).slice(0, 3000);
+        text = 'Estrutura da tela (nomes e hierarquia dos elementos):\n' + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
       }
     }
     contextCache.set(candidate.id, text);
