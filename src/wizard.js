@@ -428,7 +428,19 @@ function renderPlan(manifest) {
   const m = manifest || {};
   const frontend = m.frontend || {};
   const backend = m.backend || {};
-  const provider = ui.provider.value || 'nenhum (determinístico)';
+  const providerChoice = ui.provider.value || null;
+
+  // Inference status straight from the server — never assume the LLM ran.
+  const inference = m.inference || null;
+  let inferenceHtml;
+  if (!providerChoice) {
+    inferenceHtml = '<p class="muted">Inferência: nenhuma (geração determinística por templates)</p>';
+  } else if (inference && inference.engaged) {
+    inferenceHtml = `<p class="plan-ok">✓ Inferência ativa: ${escapeHtml(inference.provider)} — o plano abaixo foi produzido pela IA.</p>`;
+  } else {
+    const err = inference && inference.error ? inference.error : 'o servidor não reportou o status da inferência';
+    inferenceHtml = `<p class="plan-bad">⚠ Inferência ${escapeHtml(providerChoice)} FALHOU: ${escapeHtml(err)}<br>Se confirmar, a geração será interrompida com este erro — corrija as credenciais/modelo antes.</p>`;
+  }
 
   const screens = (frontend.screens || []).map((s) => `${s.name || s.route || '?'}${s.route ? ` → /${String(s.route).replace(/^\//, '')}` : ''}`);
   const routes = (frontend.routes || []).map((r) => `/${String(r).replace(/^\//, '')}`);
@@ -438,7 +450,7 @@ function renderPlan(manifest) {
   ui.planBody.innerHTML = `
     <p><strong>${escapeHtml(m.projectName || '?')}</strong> <span class="muted">(${escapeHtml(m.slug || '')})</span></p>
     <p class="muted">Stack: ${escapeHtml(backend.framework || '?')} + ${escapeHtml(backend.database || '?')} · ${escapeHtml(frontend.framework || 'angular')} · saída: ${escapeHtml(m.generationMode || outputMode)}</p>
-    <p class="muted">Inferência: ${escapeHtml(provider)}</p>
+    ${inferenceHtml}
     ${planSection('Telas', screens)}
     ${screens.length ? '' : planSection('Rotas', routes)}
     ${planSection('Módulos backend inferidos', modules)}
