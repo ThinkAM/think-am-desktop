@@ -20,6 +20,9 @@ const ui = {
   modeTemplate: el('mode-template'),
   modeStarter: el('mode-starter'),
   modeHint: el('mode-hint'),
+  chooseFolderBtn: el('choose-folder-btn'),
+  folderDot: el('folder-dot'),
+  folderText: el('folder-text'),
   figmaCard: el('figma-card'),
   nodeId: el('nodeId'),
   figmaDot: el('figma-dot'),
@@ -45,7 +48,7 @@ const ui = {
   genText: el('gen-text'),
   result: el('result'),
   files: el('files'),
-  saveBtn: el('save-btn'),
+  retryLocalBtn: el('retry-local-btn'),
   resultHint: el('result-hint'),
   installStatus: el('install-status'),
   runError: el('run-error'),
@@ -588,13 +591,66 @@ async function showStructure(downloadUrl) {
   const files = (r.files || []).sort();
   const shown = files.slice(0, 500);
   ui.files.textContent = shown.join('\n') + (files.length > shown.length ? `\n… e mais ${files.length - shown.length} arquivo(s)` : '');
-  ui.resultHint.textContent = `${files.length} arquivo(s) · ${(r.sizeBytes / 1024 / 1024).toFixed(1)} MB — revise a estrutura e salve quando quiser.`;
-
-  setDot(ui.genDot, 'ok');
-  ui.genText.textContent = 'Projeto gerado com sucesso.';
+  ui.resultHint.textContent = `${files.length} arquivo(s) · ${(r.sizeBytes / 1024 / 1024).toFixed(1)} MB gerados no servidor.`;
   ui.result.hidden = false;
+
+  // The server job is only stage 1 — do NOT say "sucesso" yet, that reads as
+  // "everything is done" when extraction + local npm install (the part most
+  // likely to fail: disk space, missing npm) haven't run yet. Chain straight
+  // into them using the folder chosen up front in Step 1.
+  setDot(ui.genDot, 'ok');
+  ui.genText.textContent = 'Gerado no servidor — extraindo e instalando localmente…';
+  await deliverLocally();
+
   ui.confirmBtn.disabled = false;
   ui.confirmBtn.textContent = 'Gerar novamente';
+}
+
+function setChosenFolder(folderPath) {
+  lastSaveDir = folderPath;
+  ui.folderText.textContent = folderPath;
+  setDot(ui.folderDot, 'ok');
+}
+
+async function chooseFolder() {
+  const picked = await api.genPickFolder(lastSaveDir);
+  if (!picked.ok) return; // user canceled
+  setChosenFolder(picked.path);
+  saveInputs(); // remember immediately, don't wait for a generation to complete
+}
+
+// Extracts the last-downloaded zip into the folder chosen in Step 1 and runs
+// `npm install` locally. Split out from showStructure so a failure here (e.g.
+// disk full) can be retried on its own — no need to wait through another
+// 15-20 minute server generation just to redo the local part.
+async function deliverLocally() {
+  ui.retryLocalBtn.hidden = true;
+  ui.installStatus.hidden = false;
+  ui.installStatus.className = 'hint hint--left muted';
+  ui.installStatus.textContent = `Extraindo para ${lastSaveDir}…`;
+
+  const save = await api.genSave(lastSaveDir);
+  if (!save.ok) {
+    ui.installStatus.className = 'hint hint--left plan-bad';
+    ui.installStatus.textContent = `⚠ Falha ao extrair o projeto: ${save.error}`;
+    ui.retryLocalBtn.hidden = false;
+    return;
+  }
+
+  ui.resultHint.textContent = `Salvo em ${save.path} (${save.fileCount} arquivo(s))`;
+  ui.installStatus.textContent = `Instalando dependências localmente (apps/api, apps/web) em ${save.path}… isso pode levar 1-2 minutos.`;
+
+  const install = await api.genNpmInstall(save.path);
+  if (install.ok) {
+    ui.installStatus.className = 'hint hint--left plan-ok';
+    ui.installStatus.textContent = '✓ Projeto pronto: extraído e com dependências instaladas.';
+  } else {
+    const failed = (install.results || []).filter((x) => !x.ok);
+    const detail = failed.map((x) => `${x.app}: ${x.error}`).join(' | ') || install.error || 'erro desconhecido';
+    ui.installStatus.className = 'hint hint--left plan-bad';
+    ui.installStatus.textContent = `⚠ npm install falhou para ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}`;
+    ui.retryLocalBtn.hidden = false;
+  }
 }
 
 function pollJob(jobId) {
@@ -646,6 +702,11 @@ function pollJob(jobId) {
 
 async function generate() {
   if (!pendingRequest) return;
+  if (!lastSaveDir) {
+    showError('Escolha a pasta de destino (Passo 1) antes de gerar.');
+    ui.chooseFolderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   // Remember these inputs so the next run can start pre-filled.
   saveInputs();
@@ -668,42 +729,6 @@ async function generate() {
     showStructure(r.downloadUrl);
   } else {
     failGeneration('Resposta inesperada do servidor.');
-  }
-}
-
-async function saveZip() {
-  const picked = await api.genPickFolder(lastSaveDir);
-  if (!picked.ok) return; // user canceled — leave everything as-is
-
-  ui.saveBtn.disabled = true;
-  ui.saveBtn.textContent = 'Extraindo…';
-  ui.installStatus.hidden = true;
-  try {
-    const r = await api.genSave(picked.path);
-    if (!r.ok) { showError(r.error || 'Falha ao salvar.'); return; }
-
-    lastSaveDir = picked.path;
-    saveInputs(); // remember the folder immediately, don't wait for the next generation
-    ui.resultHint.textContent = `Salvo em ${r.path} (${r.fileCount} arquivo(s))`;
-
-    // The heavy dependency-resolution work runs on the user's machine, not
-    // the server — the server only validates that the packages resolve.
-    ui.installStatus.hidden = false;
-    ui.installStatus.className = 'hint hint--left muted';
-    ui.installStatus.textContent = 'Instalando dependências localmente (apps/api, apps/web)… isso pode levar 1-2 minutos.';
-    const install = await api.genNpmInstall(r.path);
-    if (install.ok) {
-      ui.installStatus.className = 'hint hint--left plan-ok';
-      ui.installStatus.textContent = '✓ Dependências instaladas com sucesso — o projeto está pronto para rodar.';
-    } else {
-      const failed = (install.results || []).filter((x) => !x.ok);
-      const detail = failed.map((x) => `${x.app}: ${x.error}`).join(' | ') || install.error || 'erro desconhecido';
-      ui.installStatus.className = 'hint hint--left plan-bad';
-      ui.installStatus.textContent = `⚠ npm install falhou para ${failed.map((x) => x.app).join(', ') || 'o projeto'} — rode manualmente e revise: ${detail}`;
-    }
-  } finally {
-    ui.saveBtn.disabled = false;
-    ui.saveBtn.textContent = 'Escolher pasta e salvar';
   }
 }
 
@@ -750,7 +775,7 @@ function applyInputs(saved) {
   el('bedrockSecret').value = saved.bedrockSecret || '';
   if (saved.bedrockModel) setSelectValue(el('bedrockModel'), saved.bedrockModel);
   ui.deepContext.checked = saved.deepContext !== false;
-  if (saved.saveDir) lastSaveDir = saved.saveDir;
+  if (saved.saveDir) setChosenFolder(saved.saveDir);
   syncProviderFields();
   if (Array.isArray(saved.routeCandidates) && saved.routeCandidates.length) {
     routeCandidates = saved.routeCandidates;
@@ -767,6 +792,7 @@ async function init() {
   ui.gateCta.addEventListener('click', () => api.navigate('launcher'));
   ui.modeTemplate.addEventListener('click', () => setOutputMode('template'));
   ui.modeStarter.addEventListener('click', () => setOutputMode('starter-kit'));
+  ui.chooseFolderBtn.addEventListener('click', chooseFolder);
   ui.extractBtn.addEventListener('click', detectScreens);
   ui.clearBtn.addEventListener('click', clearScreens);
   ui.provider.addEventListener('change', syncProviderFields);
@@ -779,7 +805,7 @@ async function init() {
   ui.planBtn.addEventListener('click', showPlan);
   ui.confirmBtn.addEventListener('click', generate);
   ui.adjustBtn.addEventListener('click', () => { ui.plan.hidden = true; pendingRequest = null; });
-  ui.saveBtn.addEventListener('click', saveZip);
+  ui.retryLocalBtn.addEventListener('click', deliverLocally);
   ui.reuseBtn.addEventListener('click', async () => {
     applyInputs(await api.loadWizardInputs());
     ui.reuseBtn.hidden = true;

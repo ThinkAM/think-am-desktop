@@ -47,6 +47,17 @@
         </div>
         <p class="hint hint--left" id="mode-hint">Geração completa via pipeline de IA, parametrizada pelo seu design.</p>
       </div>
+      <div class="field">
+        <label>Pasta de destino</label>
+        <div class="status-row">
+          <div class="status">
+            <span class="dot" id="folder-dot"></span>
+            <span id="folder-text">Nenhuma pasta escolhida ainda.</span>
+          </div>
+          <button id="choose-folder-btn" class="btn btn--ghost" type="button">Escolher pasta</button>
+        </div>
+        <p class="hint hint--left">Ao final da geração, o projeto é extraído aqui e as dependências são instaladas automaticamente (sem passo manual).</p>
+      </div>
     </section>
 
     <!-- Step 2: local Figma (optional) -->
@@ -157,9 +168,9 @@
       <div id="result" hidden>
         <h3 class="section-title">Estrutura do projeto gerado</h3>
         <pre id="files" class="files"></pre>
-        <button id="save-btn" class="btn btn--primary btn--wide" type="button">Escolher pasta e salvar</button>
         <p class="hint" id="result-hint"></p>
         <p class="hint hint--left" id="install-status" hidden></p>
+        <button id="retry-local-btn" class="btn btn--primary btn--wide" type="button" hidden>Tentar novamente (extração + instalação local)</button>
       </div>
 
       <p class="hint hint--left" id="run-error" hidden></p>
