@@ -1,6 +1,6 @@
 /* Native generation wizard — extends launcher.css */
 
-.shell--wide { max-width: 680px; }
+.shell--wide { max-width: 860px; }
 
 .brand { align-items: center; }
 
@@ -75,19 +75,23 @@ select option { background: var(--navy-800); }
 }
 .models-status { margin-top: 8px; }
 .models-status--error { color: #fca5a5; }
-.plan-body { font-size: 14px; line-height: 1.55; }
+.plan-body {
+  font-size: 14px; line-height: 1.55;
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px;
+}
+.plan-body > p, .plan-body > .plan-raw { grid-column: 1 / -1; }
 .plan-body p { margin: 4px 0; }
 .plan-body h4 {
   margin: 14px 0 6px; font-size: 12px; font-weight: 700;
   letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate-400);
 }
-.plan-body ul { margin: 0; padding-left: 18px; max-height: 220px; overflow-y: auto; }
+.plan-body ul { margin: 0; padding-left: 18px; max-height: 320px; overflow-y: auto; }
 .plan-body li { margin: 2px 0; color: var(--slate-300); }
 .plan-raw { margin-top: 14px; }
 .plan-raw summary { cursor: pointer; font-size: 13px; color: var(--slate-400); }
 .plan-raw pre {
   margin-top: 8px; padding: 12px; border-radius: 10px; font-size: 11px; line-height: 1.4;
-  background: rgba(2, 8, 23, 0.5); max-height: 280px; overflow: auto;
+  background: rgba(2, 8, 23, 0.5); max-height: 340px; overflow: auto;
   -webkit-user-select: text; user-select: text;
 }
 .plan-actions { display: flex; gap: 10px; margin-top: 14px; }

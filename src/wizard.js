@@ -495,7 +495,7 @@ function stopPolling() {
 function planSection(title, items) {
   if (!items || !items.length) return '';
   const list = items.map((i) => `<li>${escapeHtml(i)}</li>`).join('');
-  return `<h4>${escapeHtml(title)} (${items.length})</h4><ul>${list}</ul>`;
+  return `<div class="plan-section"><h4>${escapeHtml(title)} (${items.length})</h4><ul>${list}</ul></div>`;
 }
 
 function escapeHtml(value) {
