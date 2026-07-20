@@ -597,9 +597,18 @@ async function showStructure(downloadUrl) {
 
 function pollJob(jobId) {
   stopPolling();
+  let failStreak = 0;
   jobTimer = setInterval(async () => {
     const r = await api.genJob(jobId);
-    if (!r.ok) { failGeneration(r.error); return; }
+    if (!r.ok) {
+      // Uma falha de poll não significa que o job morreu — o servidor continua
+      // gerando. Só desiste depois de ~30s sem contato.
+      failStreak += 1;
+      if (failStreak >= 6) { failGeneration(r.error); return; }
+      ui.genText.textContent = `Conexão instável com o servidor — tentando de novo (${failStreak}/6)… a geração continua rodando.`;
+      return;
+    }
+    failStreak = 0;
     if (r.progress) ui.genText.textContent = r.progress;
     const status = String(r.status || '').toLowerCase();
     if (status === 'completed' || status === 'completed_with_warnings') {
