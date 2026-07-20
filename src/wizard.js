@@ -598,15 +598,35 @@ async function showStructure(downloadUrl) {
 function pollJob(jobId) {
   stopPolling();
   let failStreak = 0;
-  jobTimer = setInterval(async () => {
+  let slowMode = false;
+
+  // Perda de conexão NUNCA vira "Geração falhou": o job continua rodando no
+  // servidor. Depois de ~30s sem contato, passa a reconectar a cada 30s e
+  // avisa que a conclusão também chega por e-mail. Só falha de verdade quando
+  // o servidor reportar status "failed".
+  const tick = async () => {
     const r = await api.genJob(jobId);
     if (!r.ok) {
-      // Uma falha de poll não significa que o job morreu — o servidor continua
-      // gerando. Só desiste depois de ~30s sem contato.
       failStreak += 1;
-      if (failStreak >= 6) { failGeneration(r.error); return; }
-      ui.genText.textContent = `Conexão instável com o servidor — tentando de novo (${failStreak}/6)… a geração continua rodando.`;
+      if (slowMode) return;
+      if (failStreak >= 6) {
+        slowMode = true;
+        stopPolling();
+        jobTimer = setInterval(tick, 30000);
+        setDot(ui.genDot, 'warn');
+        ui.genText.textContent =
+          'Sem conexão com o servidor, mas a geração CONTINUA rodando lá. '
+          + 'Vamos seguir tentando reconectar — e você também será avisado por e-mail quando concluir.';
+      } else {
+        ui.genText.textContent = `Conexão instável com o servidor — tentando de novo (${failStreak}/6)… a geração continua rodando.`;
+      }
       return;
+    }
+    if (slowMode) {
+      slowMode = false;
+      stopPolling();
+      jobTimer = setInterval(tick, 5000);
+      setDot(ui.genDot, 'loading');
     }
     failStreak = 0;
     if (r.progress) ui.genText.textContent = r.progress;
@@ -618,7 +638,8 @@ function pollJob(jobId) {
     } else if (status === 'failed') {
       failGeneration(r.error || 'A geração falhou no servidor.');
     }
-  }, 5000);
+  };
+  jobTimer = setInterval(tick, 5000);
 }
 
 async function generate() {
