@@ -76,6 +76,13 @@ function updateStepper() {
   const pct = ((currentStep - 1) / (STEP_SECTIONS.length - 1)) * 100;
   ui.stepperFill.style.width = pct + '%';
   ui.stepperPlane.style.left = pct + '%';
+
+  // Takeoff-and-land hop, replayed on every step change. CSS animations
+  // don't restart just because the class is still there, so force it:
+  // remove, reflow, re-add.
+  ui.stepperPlane.classList.remove('hopping');
+  void ui.stepperPlane.offsetWidth;
+  ui.stepperPlane.classList.add('hopping');
 }
 
 function goToStep(n) {

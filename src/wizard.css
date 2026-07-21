@@ -16,10 +16,18 @@
   border-radius: 999px; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .stepper__plane {
-  position: absolute; top: 14px; left: 0; font-size: 18px; line-height: 1;
-  transform: translate(-50%, -50%) rotate(90deg);
+  position: absolute; top: 14px; left: 0; color: var(--cyan-300);
+  transform: translate(-50%, -50%);
   transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
   filter: drop-shadow(0 2px 6px rgba(34, 211, 238, 0.55));
+}
+.stepper__plane svg { display: block; fill: currentColor; }
+.stepper__plane.hopping { animation: stepper-plane-hop 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+@keyframes stepper-plane-hop {
+  0%   { transform: translate(-50%, -50%) translateY(0) rotate(0deg); }
+  35%  { transform: translate(-50%, -50%) translateY(-14px) rotate(-14deg); }
+  65%  { transform: translate(-50%, -50%) translateY(-14px) rotate(-14deg); }
+  100% { transform: translate(-50%, -50%) translateY(0) rotate(0deg); }
 }
 .stepper__list {
   position: relative; list-style: none; display: flex; justify-content: space-between;
