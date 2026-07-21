@@ -166,13 +166,34 @@ async function callBedrock(cfg, systemPrompt, userPrompt) {
 }
 
 // The fix prompt asks for raw file content, but models routinely wrap it in
-// a fenced code block anyway — strip that if present, otherwise trust the
-// response as-is (mirrors the server's _extract_code_block pattern).
+// a fenced code block anyway — strip that if present. When there's no fence,
+// do NOT blindly trust the response as the file: models sometimes prepend a
+// prose preamble ("Here's the corrected file:") with no fence at all, and
+// naively writing that straight to disk corrupts the file — worse, since the
+// fixer re-reads its own last output as "current content" on the next round,
+// that corruption compounds across auto-fix attempts. Mirrors the server's
+// _extract_code_block/_looks_structurally_complete pattern exactly: unfenced
+// content is only trusted if it starts like a real file, and even then it's
+// rejected if a stray ``` marker or unbalanced braces/parens suggest a
+// truncated/mixed response.
 function extractCode(text) {
   if (!text) return null;
-  const fenced = text.match(/```(?:typescript|ts)?\s*\n([\s\S]*?)```/);
-  if (fenced) return fenced[1].trim();
-  return text.trim();
+  const fenced = text.match(/```(?:[a-zA-Z]*)\s*\n([\s\S]*?)```/);
+  let code;
+  if (fenced) {
+    code = fenced[1].trim();
+  } else {
+    const stripped = text.trim();
+    code = stripped.startsWith('import ') || stripped.startsWith('@Component') ? stripped : null;
+  }
+  if (code === null) return null;
+  return looksStructurallyComplete(code) ? code : null;
+}
+
+function looksStructurallyComplete(code) {
+  if (code.includes('```')) return false;
+  const count = (str, ch) => str.split(ch).length - 1;
+  return count(code, '{') === count(code, '}') && count(code, '(') === count(code, ')');
 }
 
 module.exports = { hasProvider, callLlm, extractCode };
