@@ -539,6 +539,16 @@ function findNpmBinary() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+// tsc/ng-build/npm all emit ANSI color codes even when stdout is piped
+// (not a real TTY), which show up as raw "[90m"/"[0m" junk once captured as
+// plain text — and, worse, break extractErrorFiles()'s regex when a color
+// reset lands between a filename and its ":line:col", silently preventing
+// auto-fix from ever finding the file to correct.
+function stripAnsi(str) {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 // On Windows, npm is npm.cmd — spawning a .cmd with shell:false throws
 // EINVAL synchronously (before even reaching the 'error' event), so this
 // must go through the shell there. Args/cwd are always fixed literals (no
@@ -548,7 +558,11 @@ function runNpm(cwd, args, fallbackError) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(findNpmBinary(), args, { cwd, shell: process.platform === 'win32' });
+      child = spawn(findNpmBinary(), args, {
+        cwd,
+        shell: process.platform === 'win32',
+        env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      });
     } catch (err) {
       resolve({ ok: false, error: `Não foi possível iniciar o npm (${err.message}).` });
       return;
@@ -562,7 +576,8 @@ function runNpm(cwd, args, fallbackError) {
       // Type errors (the class of bug a build catches) tend to produce long,
       // detailed esbuild/tsc output — keep more tail than a typical npm
       // install failure so the actual error survives the truncation.
-      resolve({ ok: false, error: output.trim().slice(-2500) || `${fallbackError} (código ${code}).` });
+      const clean = stripAnsi(output).trim();
+      resolve({ ok: false, error: clean.slice(-2500) || `${fallbackError} (código ${code}).` });
     });
   });
 }
