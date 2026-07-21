@@ -668,17 +668,22 @@ async function deliverLocally() {
   }
 
   ui.resultHint.textContent = `Salvo em ${save.path} (${save.fileCount} arquivo(s))`;
-  ui.installStatus.textContent = `Instalando dependências localmente (apps/api, apps/web) em ${save.path}… isso pode levar 1-2 minutos.`;
+  // Building (not just installing) locally catches real compile errors — a
+  // typo the AI made in a property name, for instance — before the user
+  // finds out via a `docker compose up --build` failure minutes into a build.
+  ui.installStatus.textContent = `Instalando dependências e validando a build localmente (apps/api, apps/web) em ${save.path}… isso pode levar alguns minutos.`;
 
-  const install = await api.genNpmInstall(save.path);
+  const install = await api.genNpmInstallAndBuild(save.path);
   if (install.ok) {
     ui.installStatus.className = 'hint hint--left plan-ok';
-    ui.installStatus.textContent = '✓ Projeto pronto: extraído e com dependências instaladas.';
+    ui.installStatus.textContent = '✓ Projeto pronto: dependências instaladas e build validada com sucesso.';
   } else {
     const failed = (install.results || []).filter((x) => !x.ok);
-    const detail = failed.map((x) => `${x.app}: ${x.error}`).join(' | ') || install.error || 'erro desconhecido';
+    const detail = failed
+      .map((x) => `${x.app} (${x.stage === 'install' ? 'npm install' : 'npm run build'}): ${x.error}`)
+      .join(' | ') || install.error || 'erro desconhecido';
     ui.installStatus.className = 'hint hint--left plan-bad';
-    ui.installStatus.textContent = `⚠ npm install falhou para ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}`;
+    ui.installStatus.textContent = `⚠ Falha em ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}`;
     ui.retryLocalBtn.hidden = false;
   }
 }

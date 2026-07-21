@@ -538,16 +538,16 @@ function findNpmBinary() {
   return process.platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function runNpmInstall(cwd) {
+// On Windows, npm is npm.cmd — spawning a .cmd with shell:false throws
+// EINVAL synchronously (before even reaching the 'error' event), so this
+// must go through the shell there. Args/cwd are always fixed literals (no
+// user input reaches the shell), so this is safe despite Node's generic
+// shell:true warning. Unix doesn't need this — npm is a real executable.
+function runNpm(cwd, args, fallbackError) {
   return new Promise((resolve) => {
-    // On Windows, npm is npm.cmd — spawning a .cmd with shell:false throws
-    // EINVAL synchronously (before even reaching the 'error' event), so this
-    // must go through the shell there. Args/cwd are fixed literals (no user
-    // input reaches the shell), so this is safe despite Node's generic
-    // shell:true warning. Unix doesn't need this — npm is a real executable.
     let child;
     try {
-      child = spawn(findNpmBinary(), ['install'], { cwd, shell: process.platform === 'win32' });
+      child = spawn(findNpmBinary(), args, { cwd, shell: process.platform === 'win32' });
     } catch (err) {
       resolve({ ok: false, error: `Não foi possível iniciar o npm (${err.message}).` });
       return;
@@ -558,10 +558,16 @@ function runNpmInstall(cwd) {
     child.on('error', (err) => resolve({ ok: false, error: `npm não encontrado no PATH local (${err.message}).` }));
     child.on('close', (code) => {
       if (code === 0) return resolve({ ok: true });
-      resolve({ ok: false, error: output.trim().slice(-1500) || `npm install falhou (código ${code}).` });
+      // Type errors (the class of bug a build catches) tend to produce long,
+      // detailed esbuild/tsc output — keep more tail than a typical npm
+      // install failure so the actual error survives the truncation.
+      resolve({ ok: false, error: output.trim().slice(-2500) || `${fallbackError} (código ${code}).` });
     });
   });
 }
+
+const runNpmInstall = (cwd) => runNpm(cwd, ['install'], 'npm install falhou');
+const runNpmBuild = (cwd) => runNpm(cwd, ['run', 'build'], 'npm run build falhou');
 
 // Two-phase download: fetch keeps the zip in memory and returns its file
 // structure for preview; save extracts it onto disk in a user-chosen folder
@@ -603,11 +609,17 @@ ipcMain.handle('gen:save', async (_e, destDir) => {
   }
 });
 
-// Runs `npm install` locally for each app under the extracted project — the
-// "trabalho pesado" of dependency resolution/download happens on the user's
-// machine, not the server. Sequential (not parallel) to avoid doubling CPU/
-// network load on the user's machine and to keep progress reporting simple.
-ipcMain.handle('gen:npmInstall', async (_e, projectDir) => {
+// Runs `npm install` + `npm run build` locally for each app under the
+// extracted project — the "trabalho pesado" of dependency resolution and
+// actual TypeScript compilation happens on the user's machine, not the
+// server (which only does a lightweight npm-registry resolvability check).
+// The build step catches real compile errors (wrong property names, bad
+// syntax the AI produced) that a plain `npm install` can't — the case that
+// motivated this: `docker compose up --build` failing on a typo 19 minutes
+// into a build the user only found out about after the fact. Sequential
+// (not parallel) to avoid doubling CPU/network load on the user's machine
+// and to keep progress reporting simple.
+ipcMain.handle('gen:npmInstallAndBuild', async (_e, projectDir) => {
   const apps = [
     { key: 'api', dir: path.join(projectDir, 'apps', 'api') },
     { key: 'web', dir: path.join(projectDir, 'apps', 'web') },
@@ -617,8 +629,13 @@ ipcMain.handle('gen:npmInstall', async (_e, projectDir) => {
 
   const results = [];
   for (const a of apps) {
-    const r = await runNpmInstall(a.dir);
-    results.push({ app: a.key, ...r });
+    const install = await runNpmInstall(a.dir);
+    if (!install.ok) {
+      results.push({ app: a.key, stage: 'install', ok: false, error: install.error });
+      continue;
+    }
+    const build = await runNpmBuild(a.dir);
+    results.push({ app: a.key, stage: 'build', ok: build.ok, error: build.error });
   }
   return { ok: results.every((r) => r.ok), results };
 });
