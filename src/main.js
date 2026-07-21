@@ -7,6 +7,7 @@ const net = require('node:net');
 const zlib = require('node:zlib');
 const { spawn } = require('node:child_process');
 const { FigmaMcpClient, DEFAULT_MCP_URL } = require('./figma-mcp');
+const { hasProvider, callLlm, extractCode } = require('./local-llm');
 
 const IS_DEV = process.argv.includes('--dev');
 const SESSION_PARTITION = 'persist:thinkam';
@@ -609,6 +610,51 @@ ipcMain.handle('gen:save', async (_e, destDir) => {
   }
 });
 
+// Compiler error output mentions the failing file — either esbuild/ng-build
+// style ("src/app/foo.component.ts:574:45:") or classic tsc style
+// ("src/foo.ts(12,34):"). Extract unique paths so the fixer knows what to
+// read and rewrite, without needing to parse full diagnostic structure.
+function extractErrorFiles(errorText, appDir) {
+  const matches = new Set();
+  const re = /([a-zA-Z0-9_\-./]+\.ts)[:(]\d+[,:]\d+/g;
+  let m;
+  while ((m = re.exec(errorText))) matches.add(m[1]);
+  return [...matches]
+    .map((rel) => path.join(appDir, rel))
+    .filter((abs) => fs.existsSync(abs) && abs.startsWith(path.normalize(appDir)));
+}
+
+const MAX_AUTO_FIX_ATTEMPTS = 3;
+const MAX_FILES_PER_FIX = 3; // bound cost/scope of a single fix round
+
+// Asks the configured LLM to correct each file the build error points at,
+// writes the correction back, and returns whether it touched anything (the
+// caller re-runs the build to see if it actually helped).
+async function attemptAutoFix(appDir, errorText, llmConfig, progressCb) {
+  const files = extractErrorFiles(errorText, appDir).slice(0, MAX_FILES_PER_FIX);
+  if (!files.length) return { touched: [], error: 'Não encontrei nenhum arquivo .ts citado no erro para corrigir.' };
+
+  const touched = [];
+  for (const absPath of files) {
+    const relPath = path.relative(appDir, absPath);
+    if (progressCb) progressCb(relPath);
+    const original = fs.readFileSync(absPath, 'utf-8');
+    const system =
+      'You are fixing a TypeScript compile error in a generated Angular/NestJS project file. ' +
+      'You will receive the exact compiler error output and the CURRENT full content of one file. ' +
+      'Return ONLY the complete corrected file content — no explanation, no markdown fences, no commentary. ' +
+      'Make the minimal change needed to resolve the error(s) shown; preserve all unrelated working code exactly as-is.';
+    const user = `Build error output:\n${errorText.slice(0, 4000)}\n\nFile: ${relPath}\n\nCurrent content:\n${original}`;
+    const r = await callLlm(llmConfig, system, user);
+    if (!r.ok || !r.text) continue; // leave this file alone, build will report it again if still broken
+    const fixed = extractCode(r.text);
+    if (!fixed || fixed.length < 10) continue;
+    fs.writeFileSync(absPath, fixed, 'utf-8');
+    touched.push(relPath);
+  }
+  return { touched, error: touched.length ? null : 'A IA não conseguiu propor uma correção aplicável.' };
+}
+
 // Runs `npm install` + `npm run build` locally for each app under the
 // extracted project — the "trabalho pesado" of dependency resolution and
 // actual TypeScript compilation happens on the user's machine, not the
@@ -616,10 +662,15 @@ ipcMain.handle('gen:save', async (_e, destDir) => {
 // The build step catches real compile errors (wrong property names, bad
 // syntax the AI produced) that a plain `npm install` can't — the case that
 // motivated this: `docker compose up --build` failing on a typo 19 minutes
-// into a build the user only found out about after the fact. Sequential
-// (not parallel) to avoid doubling CPU/network load on the user's machine
-// and to keep progress reporting simple.
-ipcMain.handle('gen:npmInstallAndBuild', async (_e, projectDir) => {
+// into a build the user only found out about after the fact.
+//
+// When a build fails AND the user has a BYOK LLM provider configured (the
+// same one from Step 3 — no separate credentials, no new product), retries
+// up to MAX_AUTO_FIX_ATTEMPTS times: send the error + failing file(s) to the
+// model, write back its correction, rebuild. Gives up and reports the last
+// real error if the model can't fix it in that many rounds. With no
+// provider configured, behaves exactly as before (report and stop).
+ipcMain.handle('gen:npmInstallAndBuild', async (_e, projectDir, llmConfig) => {
   const apps = [
     { key: 'api', dir: path.join(projectDir, 'apps', 'api') },
     { key: 'web', dir: path.join(projectDir, 'apps', 'web') },
@@ -634,8 +685,26 @@ ipcMain.handle('gen:npmInstallAndBuild', async (_e, projectDir) => {
       results.push({ app: a.key, stage: 'install', ok: false, error: install.error });
       continue;
     }
-    const build = await runNpmBuild(a.dir);
-    results.push({ app: a.key, stage: 'build', ok: build.ok, error: build.error });
+
+    let build = await runNpmBuild(a.dir);
+    const autoFixedFiles = [];
+    let attempts = 0;
+    while (!build.ok && hasProvider(llmConfig) && attempts < MAX_AUTO_FIX_ATTEMPTS) {
+      attempts += 1;
+      const fix = await attemptAutoFix(a.dir, build.error, llmConfig);
+      if (!fix.touched.length) break; // nothing the fixer could act on — stop looping
+      autoFixedFiles.push(...fix.touched);
+      build = await runNpmBuild(a.dir);
+    }
+
+    results.push({
+      app: a.key,
+      stage: 'build',
+      ok: build.ok,
+      error: build.error,
+      autoFixAttempts: attempts,
+      autoFixedFiles: [...new Set(autoFixedFiles)],
+    });
   }
   return { ok: results.every((r) => r.ok), results };
 });

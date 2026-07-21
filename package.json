@@ -1,7 +1,7 @@
 {
   "name": "think-am-desktop",
   "productName": "Think A.M. Builder",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Desktop client for Think A.M. Builder — log in and talk to the Think A.M. API natively.",
   "main": "src/main.js",
   "author": "Think A.M.",

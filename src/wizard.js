@@ -680,17 +680,31 @@ async function deliverLocally() {
   // finds out via a `docker compose up --build` failure minutes into a build.
   ui.installStatus.textContent = `Instalando dependências e validando a build localmente (apps/api, apps/web) em ${save.path}… isso pode levar alguns minutos.`;
 
-  const install = await api.genNpmInstallAndBuild(save.path);
+  // pendingRequest already carries the Step 3 BYOK fields in the exact shape
+  // local-llm.js expects (llmProvider, anthropicApiKey, bedrockAccessKeyId,
+  // ...) — same object the server request used, no separate config to keep
+  // in sync. When no provider is configured, the main process just skips
+  // auto-fix and behaves exactly as before.
+  const install = await api.genNpmInstallAndBuild(save.path, pendingRequest);
+  const allFixedFiles = (install.results || []).flatMap((x) => x.autoFixedFiles || []);
+  const fixedNote = allFixedFiles.length
+    ? ` A IA corrigiu automaticamente: ${allFixedFiles.join(', ')}.`
+    : '';
+
   if (install.ok) {
     ui.installStatus.className = 'hint hint--left plan-ok';
-    ui.installStatus.textContent = '✓ Projeto pronto: dependências instaladas e build validada com sucesso.';
+    ui.installStatus.textContent = `✓ Projeto pronto: dependências instaladas e build validada com sucesso.${fixedNote}`;
   } else {
     const failed = (install.results || []).filter((x) => !x.ok);
     const detail = failed
-      .map((x) => `${x.app} (${x.stage === 'install' ? 'npm install' : 'npm run build'}): ${x.error}`)
+      .map((x) => {
+        const where = x.stage === 'install' ? 'npm install' : 'npm run build';
+        const fixNote = x.autoFixAttempts ? ` (IA tentou corrigir ${x.autoFixAttempts}x sem sucesso)` : '';
+        return `${x.app} (${where})${fixNote}: ${x.error}`;
+      })
       .join(' | ') || install.error || 'erro desconhecido';
     ui.installStatus.className = 'hint hint--left plan-bad';
-    ui.installStatus.textContent = `⚠ Falha em ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}`;
+    ui.installStatus.textContent = `⚠ Falha em ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}${fixedNote}`;
     ui.retryLocalBtn.hidden = false;
   }
 }
