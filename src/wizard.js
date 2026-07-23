@@ -100,6 +100,9 @@ let pendingRequest = null; // request shown in the plan preview; generation uses
 let lastSaveDir = null; // remembered across saves within this session, pre-fills the folder picker
 const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
 let availableToolNames = new Set(); // tool names exposed by the connected Figma MCP
+let figmaExtractionBlocked = false; // true when the Figma "Origem da imagem: Baixar" (write-to-disk) mode blocks extraction
+const FIGMA_IMAGE_SOURCE_HELP =
+  'No Figma: painel MCP → ícone de configuração (⚙) → "Origem da imagem" → troque de "Baixar" para "Servidor local". Depois clique em Detectar telas de novo.';
 
 const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : ''); };
 
@@ -289,6 +292,7 @@ function parseScreens(text) {
 
 async function detectScreens() {
   showError('');
+  figmaExtractionBlocked = false; // re-probed below; a fresh detect clears a stale block
   setDot(ui.figmaDot, 'loading');
   ui.figmaText.textContent = 'Conectando ao Figma MCP local…';
   ui.extractBtn.disabled = true;
@@ -364,13 +368,58 @@ async function detectScreens() {
       ui.detectHint.hidden = false;
       ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma restringindo a varredura. Pressione Esc lá para desmarcar e detecte novamente.';
     }
+
+    // Gate the design-fidelity path up front: probe a real design extraction
+    // now so the write-to-disk ("Origem da imagem: Baixar") block is caught
+    // here and forces the user to switch to "Servidor local" BEFORE a long
+    // generation, instead of silently degrading to imagined screens.
+    if (ui.deepContext.checked) {
+      const probeNode = routeCandidates.map((c) => c.id).find((id) => /^\d+:\d+$/.test(id));
+      if (probeNode) await probeDesignExtraction(probeNode);
+    }
   } finally {
     ui.extractBtn.disabled = false;
   }
 }
 
+// A design-write-to-disk error looks like: "Path for asset writes as tool
+// argument is required..." or "Cannot write to this directory... allowed
+// directories". Any of these means "Origem da imagem" is on "Baixar".
+function isWriteToDiskError(msg) {
+  return /allowed director|asset writes|write to (this )?dis[kc]|cannot write to/i.test(String(msg || ''));
+}
+
+// Probes get_design_context on one node to verify the fidelity path works.
+// Sets figmaExtractionBlocked and surfaces the fix when the Figma image-source
+// setting blocks it. Returns true when extraction is usable.
+async function probeDesignExtraction(nodeId) {
+  const tool = availableToolNames.has('get_code') ? 'get_code'
+    : availableToolNames.has('get_design_context') ? 'get_design_context' : null;
+  if (!tool) {
+    figmaExtractionBlocked = false; // no design tool at all → legacy path, don't block
+    return false;
+  }
+  const r = await api.figmaExtract(tool, { nodeId });
+  if (r.ok) {
+    figmaExtractionBlocked = false;
+    return true;
+  }
+  if (isWriteToDiskError(r.error)) {
+    figmaExtractionBlocked = true;
+    setDot(ui.figmaDot, 'bad');
+    ui.figmaText.textContent = 'Extração de design bloqueada pela configuração do Figma. ' + FIGMA_IMAGE_SOURCE_HELP;
+    ui.detectHint.hidden = false;
+    ui.detectHint.textContent = '⚠ A geração está travada até você trocar "Origem da imagem" para "Servidor local" e detectar de novo — senão as telas seriam imaginadas, não fiéis ao Figma.';
+    return false;
+  }
+  // Some other extraction error — don't hard-block, just note it.
+  figmaExtractionBlocked = false;
+  return false;
+}
+
 function clearScreens() {
   routeCandidates = [];
+  figmaExtractionBlocked = false;
   renderRoutes();
   setDot(ui.figmaDot, null);
   ui.figmaText.textContent = 'Lista limpa — detecte novamente quando quiser.';
@@ -644,6 +693,13 @@ async function showPlan() {
   if (!name) {
     showError('Dê um nome ao projeto antes de continuar.');
     ui.projName.focus();
+    return;
+  }
+
+  // Hard gate: refuse to generate while the Figma image-source setting blocks
+  // design extraction — generating now would ship imagined screens.
+  if (figmaExtractionBlocked && ui.deepContext.checked) {
+    showError('Extração de design bloqueada pelo Figma. ' + FIGMA_IMAGE_SOURCE_HELP);
     return;
   }
 
