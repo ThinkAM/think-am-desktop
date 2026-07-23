@@ -20,6 +20,7 @@ const DEFAULT_CONFIG = {
 };
 
 let figmaClient = null;
+let figmaTools = []; // full tools/list (with inputSchema) from the last connect
 
 let mainWindow = null;
 
@@ -274,6 +275,7 @@ ipcMain.handle('figma:connect', async (_e, url) => {
     figmaClient = new FigmaMcpClient(url || loadConfig().figmaMcpUrl || DEFAULT_MCP_URL);
     const info = await figmaClient.initialize();
     const tools = await figmaClient.listTools();
+    figmaTools = tools || [];
     return {
       ok: true,
       server: (info && info.serverInfo) || null,
@@ -286,15 +288,43 @@ ipcMain.handle('figma:connect', async (_e, url) => {
   }
 });
 
+// When the Figma Dev Mode MCP has "write to disk" enabled, get_design_context/
+// get_code REQUIRE a directory-path argument to write image/SVG assets to,
+// erroring otherwise ("Path for asset writes as tool argument is required for
+// write-to-disk option") — which silently emptied every extraction. The
+// argument's NAME varies by MCP version, so instead of guessing we read the
+// tool's own inputSchema and find the property that asks for an asset-write
+// path (by name/description), then hand it a real temp directory. Works with
+// write-to-disk on or off, without the user touching Figma settings.
+function assetWriteParamFor(toolName) {
+  const tool = (figmaTools || []).find((t) => t && t.name === toolName);
+  const props = (tool && tool.inputSchema && tool.inputSchema.properties) || {};
+  for (const [name, spec] of Object.entries(props)) {
+    const hay = `${name} ${(spec && spec.description) || ''}`.toLowerCase();
+    const looksLikePath = /\b(dir|directory|path|folder)\b/.test(hay) || /writes?/.test(hay);
+    const aboutAssets = /asset|image|svg|disk|write/.test(hay);
+    if (looksLikePath && aboutAssets) return name;
+  }
+  return null;
+}
+
+function figmaAssetDir() {
+  const dir = path.join(app.getPath('temp'), 'thinkam-figma-assets');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* best-effort */ }
+  return dir;
+}
+
 ipcMain.handle('figma:extract', async (_e, payload) => {
   const { tool, args } = payload || {};
   try {
     if (!figmaClient) throw new Error('Not connected to the Figma MCP.');
     if (!tool) throw new Error('No tool selected.');
     const finalArgs = { ...(args || {}) };
-    if (tool === 'get_design_context') {
+    if (tool === 'get_design_context' || tool === 'get_code') {
       if (!finalArgs.clientLanguages) finalArgs.clientLanguages = 'typescript,html,css';
       if (!finalArgs.clientFrameworks) finalArgs.clientFrameworks = 'angular';
+      const assetParam = assetWriteParamFor(tool);
+      if (assetParam && !finalArgs[assetParam]) finalArgs[assetParam] = figmaAssetDir();
     }
     const result = await figmaClient.callTool(tool, finalArgs);
     // The Figma MCP reports tool-level failures inside the result payload.

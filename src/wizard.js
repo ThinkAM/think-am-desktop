@@ -471,36 +471,35 @@ async function buildScreenPrompt(candidate, progress) {
     if (progress) progress();
     let designCode = '';
     let promptExtra = '';
+    let extractError = '';
 
-    // Preferred: get_code returns the real markup/styles for the frame. Ask
-    // for HTML/CSS explicitly (the Dev Mode MCP honors these hints when the
-    // user set code-gen output to HTML). This is the faithful port source.
-    if (availableToolNames.has('get_code')) {
-      const code = await api.figmaExtract('get_code', {
-        nodeId: candidate.id,
-        clientFrameworks: 'html',
-        clientLanguages: 'html,css',
-      });
-      if (code.ok) {
-        designCode = cleanMcpText(mcpResultText(code.result)).slice(0, 24000);
+    // Faithful-port source, best-first. get_code returns markup/styles when
+    // present; get_design_context is the Dev Mode MCP's design-to-code tool
+    // (it returns reference code too) and is what most local servers expose —
+    // route ITS output to designCode as well so it goes through the faithful
+    // port path, not the weak "implement this description" fallback. The
+    // main-process handler injects the asset-write dir these tools need.
+    for (const toolName of ['get_code', 'get_design_context']) {
+      if (designCode || !availableToolNames.has(toolName)) continue;
+      const r = await api.figmaExtract(toolName, { nodeId: candidate.id });
+      if (r.ok) {
+        const text = cleanMcpText(mcpResultText(r.result)).slice(0, 24000);
+        if (text) designCode = text;
+      } else if (r.error) {
+        extractError = r.error;
       }
     }
 
-    // Fallback (get_code unavailable or blocked): the old descriptive-context
-    // path, embedded in figmaPrompt — lower fidelity but better than nothing.
+    // Last resort only if no design code came back: structural metadata as a
+    // weak textual hint in figmaPrompt.
     if (!designCode) {
-      const context = await api.figmaExtract('get_design_context', { nodeId: candidate.id });
-      if (context.ok) {
-        promptExtra = cleanMcpText(mcpResultText(context.result)).slice(0, 3500);
-      } else {
-        const metadata = await api.figmaExtract('get_metadata', { nodeId: candidate.id });
-        if (metadata.ok) {
-          promptExtra = 'Estrutura da tela (nomes e hierarquia dos elementos):\n'
-            + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
-        }
+      const metadata = await api.figmaExtract('get_metadata', { nodeId: candidate.id });
+      if (metadata.ok) {
+        promptExtra = 'Estrutura da tela (nomes e hierarquia dos elementos):\n'
+          + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
       }
     }
-    contextCache.set(candidate.id, { designCode, promptExtra });
+    contextCache.set(candidate.id, { designCode, promptExtra, extractError });
   }
 
   const cached = contextCache.get(candidate.id) || { designCode: '', promptExtra: '' };
@@ -516,12 +515,16 @@ async function buildRequest(onProgress) {
   const routes = selected.map((c) => c.route);
 
   const figmaScreens = [];
+  let withDesign = 0;
+  let firstError = '';
   for (let i = 0; i < selected.length; i++) {
     const candidate = selected[i];
     const { figmaPrompt, designCode } = await buildScreenPrompt(
       candidate,
       onProgress ? () => onProgress(`Extraindo design da tela ${i + 1}/${selected.length} (${candidate.name})…`) : null,
     );
+    if (designCode) withDesign += 1;
+    else if (!firstError) firstError = (contextCache.get(candidate.id) || {}).extractError || '';
     figmaScreens.push({
       screenId: candidate.id,
       name: candidate.name,
@@ -531,6 +534,21 @@ async function buildRequest(onProgress) {
       designCode,
       parentRoute: null,
     });
+  }
+
+  // Surface extraction reality so a silent empty design (e.g. the Figma MCP
+  // "write to disk" arg error) is visible instead of quietly degrading to
+  // imagined screens. Shown in the Figma status line after building the plan.
+  if (selected.length && ui.deepContext.checked) {
+    if (withDesign === 0) {
+      setDot(ui.figmaDot, 'warn');
+      ui.figmaText.textContent = firstError
+        ? `Nenhuma tela trouxe design do Figma. Erro do MCP: ${firstError}`
+        : 'Nenhuma tela trouxe design do Figma (extração vazia) — as telas serão imaginadas, não portadas.';
+    } else {
+      setDot(ui.figmaDot, withDesign === selected.length ? 'ok' : 'warn');
+      ui.figmaText.textContent = `Design extraído de ${withDesign}/${selected.length} tela(s) — essas serão portadas fielmente.`;
+    }
   }
 
   return {
