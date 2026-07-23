@@ -98,7 +98,8 @@ let routeCandidates = []; // { id, name, route, included }
 let jobTimer = null;
 let pendingRequest = null; // request shown in the plan preview; generation uses exactly this
 let lastSaveDir = null; // remembered across saves within this session, pre-fills the folder picker
-const contextCache = new Map(); // figma nodeId → design-context snippet
+const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
+let availableToolNames = new Set(); // tool names exposed by the connected Figma MCP
 
 const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : ''); };
 
@@ -286,6 +287,7 @@ async function detectScreens() {
     }
 
     const toolNames = new Set((conn.tools || []).map((t) => t.name));
+    availableToolNames = toolNames;
     if (!toolNames.has('get_metadata')) {
       setDot(ui.figmaDot, 'bad');
       ui.figmaText.textContent = 'O Figma MCP local não expõe get_metadata — atualize o Figma desktop.';
@@ -451,34 +453,61 @@ async function fetchModels(provider, button, statusEl) {
 
 // The LLM inference (including Anthropic/Bedrock BYOK) only engages when
 // screens carry a figmaPrompt — a null prompt means pure template output.
-// Build one per selected screen, optionally enriched with the real design
-// context pulled from the local Figma MCP.
+//
+// Fidelity source (why this exists): the server's `designCode` path PORTS the
+// real HTML/CSS the Figma Dev Mode MCP produces (`get_code`) instead of asking
+// the LLM to imagine a screen from a text description — the description path
+// drifts into "what the AI thought the Figma meant" and doesn't match the
+// design. So per selected frame we pull `get_code` (HTML/CSS) and carry it as
+// `designCode`; `figmaPrompt` stays a short instruction that also drives
+// backend module inference. Returns { figmaPrompt, designCode }.
 async function buildScreenPrompt(candidate, progress) {
-  let prompt = `Implementar a tela "${candidate.name}" do Figma como rota '/${candidate.route}'.`;
-  if (!ui.deepContext.checked || !/^\d+:\d+$/.test(candidate.id)) return prompt;
+  const figmaPrompt = `Implementar a tela "${candidate.name}" do Figma como rota '/${candidate.route}'.`;
+  if (!ui.deepContext.checked || !/^\d+:\d+$/.test(candidate.id)) {
+    return { figmaPrompt, designCode: '' };
+  }
 
   if (!contextCache.has(candidate.id)) {
     if (progress) progress();
-    // Best source: full design context. Falls back to the node's structural
-    // metadata when the MCP blocks context extraction (e.g. write-to-disk
-    // mode enabled without an allowed assets directory).
-    let text = '';
-    const context = await api.figmaExtract('get_design_context', { nodeId: candidate.id });
-    if (context.ok) {
-      text = cleanMcpText(mcpResultText(context.result)).slice(0, 3500);
-    } else {
-      const metadata = await api.figmaExtract('get_metadata', { nodeId: candidate.id });
-      if (metadata.ok) {
-        text = 'Estrutura da tela (nomes e hierarquia dos elementos):\n' + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
+    let designCode = '';
+    let promptExtra = '';
+
+    // Preferred: get_code returns the real markup/styles for the frame. Ask
+    // for HTML/CSS explicitly (the Dev Mode MCP honors these hints when the
+    // user set code-gen output to HTML). This is the faithful port source.
+    if (availableToolNames.has('get_code')) {
+      const code = await api.figmaExtract('get_code', {
+        nodeId: candidate.id,
+        clientFrameworks: 'html',
+        clientLanguages: 'html,css',
+      });
+      if (code.ok) {
+        designCode = cleanMcpText(mcpResultText(code.result)).slice(0, 24000);
       }
     }
-    contextCache.set(candidate.id, text);
+
+    // Fallback (get_code unavailable or blocked): the old descriptive-context
+    // path, embedded in figmaPrompt — lower fidelity but better than nothing.
+    if (!designCode) {
+      const context = await api.figmaExtract('get_design_context', { nodeId: candidate.id });
+      if (context.ok) {
+        promptExtra = cleanMcpText(mcpResultText(context.result)).slice(0, 3500);
+      } else {
+        const metadata = await api.figmaExtract('get_metadata', { nodeId: candidate.id });
+        if (metadata.ok) {
+          promptExtra = 'Estrutura da tela (nomes e hierarquia dos elementos):\n'
+            + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
+        }
+      }
+    }
+    contextCache.set(candidate.id, { designCode, promptExtra });
   }
-  const snippet = contextCache.get(candidate.id);
-  if (snippet) {
-    prompt += `\n\nContexto do design (extraído do Figma local via MCP):\n${snippet}`;
-  }
-  return prompt;
+
+  const cached = contextCache.get(candidate.id) || { designCode: '', promptExtra: '' };
+  const prompt = cached.promptExtra
+    ? `${figmaPrompt}\n\nContexto do design (extraído do Figma local via MCP):\n${cached.promptExtra}`
+    : figmaPrompt;
+  return { figmaPrompt: prompt, designCode: cached.designCode || '' };
 }
 
 async function buildRequest(onProgress) {
@@ -489,16 +518,17 @@ async function buildRequest(onProgress) {
   const figmaScreens = [];
   for (let i = 0; i < selected.length; i++) {
     const candidate = selected[i];
-    const prompt = await buildScreenPrompt(
+    const { figmaPrompt, designCode } = await buildScreenPrompt(
       candidate,
-      onProgress ? () => onProgress(`Extraindo contexto da tela ${i + 1}/${selected.length} (${candidate.name})…`) : null,
+      onProgress ? () => onProgress(`Extraindo design da tela ${i + 1}/${selected.length} (${candidate.name})…`) : null,
     );
     figmaScreens.push({
       screenId: candidate.id,
       name: candidate.name,
       kind: 'route',
       route: candidate.route,
-      figmaPrompt: prompt,
+      figmaPrompt,
+      designCode,
       parentRoute: null,
     });
   }
