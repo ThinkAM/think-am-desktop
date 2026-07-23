@@ -102,7 +102,7 @@ const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
 let availableToolNames = new Set(); // tool names exposed by the connected Figma MCP
 let figmaExtractionBlocked = false; // true when the Figma "Origem da imagem: Baixar" (write-to-disk) mode blocks extraction
 const FIGMA_IMAGE_SOURCE_HELP =
-  'No Figma: painel MCP → ícone de configuração (⚙) → "Origem da imagem" → troque de "Baixar" para "Servidor local". Depois clique em Detectar telas de novo.';
+  'No Figma: painel MCP → ícone de configuração (⚙) → "Origem da imagem" → troque de "Baixar" para "Servidor local". Depois clique em "Detectar telas do arquivo" de novo.';
 
 const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : ''); };
 
