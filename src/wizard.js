@@ -168,6 +168,21 @@ function mcpResultText(result) {
     .join('\n');
 }
 
+// get_design_context returns the frame's code in the FIRST text part, then
+// several agent-facing instruction parts ("SUPER CRITICAL: convert to target
+// stack", "call get_screenshot", node-id/asset notes). For the faithful-port
+// designCode we want ONLY the code, not that meta-noise — pick the text part
+// with the most code signals (JSX/markup/styles), falling back to the join.
+function mcpCodeText(result) {
+  const parts = ((result && result.content) || [])
+    .filter((p) => p && p.type === 'text' && typeof p.text === 'string')
+    .map((p) => p.text);
+  if (!parts.length) return '';
+  const score = (t) => (t.match(/className=|data-node-id=|export default|=>|<div|<button|style=\{|:\s*#[0-9a-f]{3,6}/gi) || []).length;
+  const best = parts.reduce((a, b) => (score(b) > score(a) ? b : a), parts[0]);
+  return score(best) >= 2 ? best : parts.join('\n');
+}
+
 // Strips MCP boilerplate that pollutes generation prompts: the selection
 // preamble and the agent-facing "call get_design_context" instruction.
 function cleanMcpText(text) {
@@ -483,7 +498,7 @@ async function buildScreenPrompt(candidate, progress) {
       if (designCode || !availableToolNames.has(toolName)) continue;
       const r = await api.figmaExtract(toolName, { nodeId: candidate.id });
       if (r.ok) {
-        const text = cleanMcpText(mcpResultText(r.result)).slice(0, 24000);
+        const text = cleanMcpText(mcpCodeText(r.result)).slice(0, 24000);
         if (text) designCode = text;
       } else if (r.error) {
         extractError = r.error;
