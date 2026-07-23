@@ -102,7 +102,7 @@ const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
 let availableToolNames = new Set(); // tool names exposed by the connected Figma MCP
 let figmaExtractionBlocked = false; // true when the Figma "Origem da imagem: Baixar" (write-to-disk) mode blocks extraction
 const FIGMA_IMAGE_SOURCE_HELP =
-  'No Figma: painel MCP → ícone de configuração (⚙) → "Origem da imagem" → troque de "Baixar" para "Servidor local". Depois clique em "Detectar telas do arquivo" de novo.';
+  'No Figma: painel MCP → ícone de configuração (⚙) → "Origem da imagem" → troque de "Baixar" para "Servidor local". Depois clique em "Próximo" de novo (não precisa re-detectar).';
 
 const setDot = (dot, state) => { dot.className = 'dot' + (state ? ' ' + state : ''); };
 
@@ -343,18 +343,20 @@ async function detectScreens() {
 
     // Merge into the existing list instead of replacing it: repeated scans
     // (another Section, another page…) accumulate, and entries the user
-    // already reviewed keep their checkbox state and edited slugs.
+    // already reviewed keep their checkbox state and edited slugs. Skip
+    // anything already present by id OR by route so re-detecting a curated /
+    // restored list is a no-op instead of injecting duplicates and unwanted
+    // frames (interaction states, variants) the user already dealt with.
     const existingIds = new Set(routeCandidates.map((c) => c.id));
     const seenRoutes = new Set(routeCandidates.map((c) => c.route));
     const additions = [];
+    let skippedDupes = 0;
     parsed.screens.forEach((s, i) => {
       const id = s.id || `screen-${Date.now()}-${i}`;
-      if (existingIds.has(id)) return;
       const route = slugify(s.name) || `tela-${routeCandidates.length + additions.length + 1}`;
-      // Design files repeat screens as interaction states (Hover, filled
-      // variants…): duplicates of an already-listed route start unchecked.
-      const isDuplicate = seenRoutes.has(route);
-      additions.push({ id, name: s.name, route, included: !isDuplicate });
+      if (existingIds.has(id) || seenRoutes.has(route)) { skippedDupes += 1; return; }
+      additions.push({ id, name: s.name, route, included: true });
+      existingIds.add(id);
       seenRoutes.add(route);
     });
     routeCandidates = routeCandidates.concat(additions);
@@ -362,8 +364,10 @@ async function detectScreens() {
 
     setDot(ui.figmaDot, additions.length ? 'ok' : 'warn');
     ui.figmaText.textContent = additions.length
-      ? `${additions.length} tela(s) adicionada(s) — ${routeCandidates.length} na lista.`
-      : `Nenhuma tela nova — as ${parsed.screens.length} encontradas já estavam na lista.`;
+      ? `${additions.length} tela(s) nova(s) adicionada(s) — ${routeCandidates.length} na lista.`
+      : (skippedDupes
+        ? `Nenhuma tela nova — as ${skippedDupes} encontradas já estavam na lista (sem duplicar).`
+        : 'Nenhuma tela (frame) encontrada.');
     if (additions.length === 1 && routeCandidates.length === 1 && !explicitNode && parsed.rootTag !== 'canvas') {
       ui.detectHint.hidden = false;
       ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma restringindo a varredura. Pressione Esc lá para desmarcar e detecte novamente.';
@@ -438,7 +442,7 @@ async function validateDesignExtraction() {
   if (isWriteToDiskError(r.error)) {
     const msg = 'Extração de design bloqueada pela configuração do Figma. ' + FIGMA_IMAGE_SOURCE_HELP;
     ui.figmaText.textContent = msg;
-    ui.detectHint.textContent = '⚠ Troque "Origem da imagem" para "Servidor local" e avance de novo — senão as telas seriam imaginadas, não fiéis ao Figma.';
+    ui.detectHint.textContent = '⚠ Troque "Origem da imagem" para "Servidor local" e clique em "Próximo" de novo — senão as telas seriam imaginadas, não fiéis ao Figma.';
     return { ok: false, message: msg };
   }
   const msg = 'Não consegui extrair o design do Figma: ' + (r.error || 'erro desconhecido') + '.';
