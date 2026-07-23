@@ -369,14 +369,8 @@ async function detectScreens() {
       ui.detectHint.textContent = 'Só 1 tela? Provavelmente há um frame selecionado no Figma restringindo a varredura. Pressione Esc lá para desmarcar e detecte novamente.';
     }
 
-    // Gate the design-fidelity path up front: probe a real design extraction
-    // now so the write-to-disk ("Origem da imagem: Baixar") block is caught
-    // here and forces the user to switch to "Servidor local" BEFORE a long
-    // generation, instead of silently degrading to imagined screens.
-    if (ui.deepContext.checked) {
-      const probeNode = routeCandidates.map((c) => c.id).find((id) => /^\d+:\d+$/.test(id));
-      if (probeNode) await probeDesignExtraction(probeNode);
-    }
+    // Gate the design-fidelity path up front (also runs on "Próximo").
+    await validateDesignExtraction();
   } finally {
     ui.extractBtn.disabled = false;
   }
@@ -389,32 +383,68 @@ function isWriteToDiskError(msg) {
   return /allowed director|asset writes|write to (this )?dis[kc]|cannot write to/i.test(String(msg || ''));
 }
 
-// Probes get_design_context on one node to verify the fidelity path works.
-// Sets figmaExtractionBlocked and surfaces the fix when the Figma image-source
-// setting blocks it. Returns true when extraction is usable.
-async function probeDesignExtraction(nodeId) {
+// Ensures the Figma MCP is connected (restoring a session skips the connect
+// that detectScreens does), populating availableToolNames. Returns connected.
+async function ensureFigmaConnected() {
+  if (availableToolNames.size) return true;
+  const conn = await api.figmaConnect();
+  if (conn && conn.ok) {
+    availableToolNames = new Set((conn.tools || []).map((t) => t.name));
+    return true;
+  }
+  return false;
+}
+
+// Actively validates that the faithful-port design extraction works for the
+// current screens BEFORE proceeding — run both from detectScreens and from
+// the step-2 "Próximo" button, so it fires whether screens were detected or
+// restored from a session. Hard-blocks (figmaExtractionBlocked) on the Figma
+// write-to-disk setting and on any extraction failure while design fidelity
+// is requested. Returns { ok, message }.
+async function validateDesignExtraction() {
+  const selected = routeCandidates.filter((c) => c.included && c.route);
+  if (!ui.deepContext.checked || !selected.length) {
+    figmaExtractionBlocked = false; // design not requested / nothing to check
+    return { ok: true };
+  }
+  const probeNode = selected.map((c) => c.id).find((id) => /^\d+:\d+$/.test(id));
+  if (!probeNode) {
+    figmaExtractionBlocked = false; // no real Figma node ids to extract from
+    return { ok: true };
+  }
+  if (!(await ensureFigmaConnected())) {
+    figmaExtractionBlocked = true;
+    const msg = 'Conecte ao Figma MCP local primeiro — clique em "Detectar telas do arquivo".';
+    setDot(ui.figmaDot, 'bad');
+    ui.figmaText.textContent = msg;
+    return { ok: false, message: msg };
+  }
   const tool = availableToolNames.has('get_code') ? 'get_code'
     : availableToolNames.has('get_design_context') ? 'get_design_context' : null;
   if (!tool) {
-    figmaExtractionBlocked = false; // no design tool at all → legacy path, don't block
-    return false;
+    figmaExtractionBlocked = false; // MCP exposes no design tool → legacy path
+    return { ok: true };
   }
-  const r = await api.figmaExtract(tool, { nodeId });
+  const r = await api.figmaExtract(tool, { nodeId: probeNode });
   if (r.ok) {
     figmaExtractionBlocked = false;
-    return true;
+    setDot(ui.figmaDot, 'ok');
+    ui.figmaText.textContent = 'Extração de design OK — as telas serão portadas fielmente ao Figma.';
+    return { ok: true };
   }
+  figmaExtractionBlocked = true;
+  setDot(ui.figmaDot, 'bad');
+  ui.detectHint.hidden = false;
   if (isWriteToDiskError(r.error)) {
-    figmaExtractionBlocked = true;
-    setDot(ui.figmaDot, 'bad');
-    ui.figmaText.textContent = 'Extração de design bloqueada pela configuração do Figma. ' + FIGMA_IMAGE_SOURCE_HELP;
-    ui.detectHint.hidden = false;
-    ui.detectHint.textContent = '⚠ A geração está travada até você trocar "Origem da imagem" para "Servidor local" e detectar de novo — senão as telas seriam imaginadas, não fiéis ao Figma.';
-    return false;
+    const msg = 'Extração de design bloqueada pela configuração do Figma. ' + FIGMA_IMAGE_SOURCE_HELP;
+    ui.figmaText.textContent = msg;
+    ui.detectHint.textContent = '⚠ Troque "Origem da imagem" para "Servidor local" e avance de novo — senão as telas seriam imaginadas, não fiéis ao Figma.';
+    return { ok: false, message: msg };
   }
-  // Some other extraction error — don't hard-block, just note it.
-  figmaExtractionBlocked = false;
-  return false;
+  const msg = 'Não consegui extrair o design do Figma: ' + (r.error || 'erro desconhecido') + '.';
+  ui.figmaText.textContent = msg;
+  ui.detectHint.textContent = '⚠ A geração está travada até a extração do design funcionar. Verifique o Figma e detecte as telas de novo.';
+  return { ok: false, message: msg };
 }
 
 function clearScreens() {
@@ -969,7 +999,7 @@ async function init() {
   ui.gateCta.addEventListener('click', () => api.navigate('launcher'));
   ui.modeTemplate.addEventListener('click', () => setOutputMode('template'));
   ui.modeStarter.addEventListener('click', () => setOutputMode('starter-kit'));
-  document.querySelectorAll('[data-next]').forEach((btn) => btn.addEventListener('click', () => {
+  document.querySelectorAll('[data-next]').forEach((btn) => btn.addEventListener('click', async () => {
     if (currentStep === 1) {
       if (!ui.projName.value.trim()) {
         showError('Dê um nome ao projeto antes de continuar.');
@@ -980,6 +1010,21 @@ async function init() {
         showError('Escolha a pasta de destino antes de continuar.');
         ui.chooseFolderBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
+      }
+    }
+    // Step 2 (Figma): validate the design extraction actually works before
+    // advancing — fires even when screens were restored from a session, not
+    // freshly detected. Blocks on the write-to-disk setting or any failure.
+    if (currentStep === 2) {
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = 'Validando extração de design…';
+      try {
+        const v = await validateDesignExtraction();
+        if (!v.ok) { showError(v.message); return; }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = prev;
       }
     }
     showError('');
