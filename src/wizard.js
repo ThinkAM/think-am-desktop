@@ -33,6 +33,7 @@ const ui = {
   extractBtn: el('extract-btn'),
   routesWrap: el('routes-wrap'),
   routesList: el('routes-list'),
+  routesLabel: el('routes-label'),
   clearBtn: el('clear-btn'),
   detectHint: el('detect-hint'),
   aiCard: el('ai-card'),
@@ -134,31 +135,73 @@ function showError(message) {
 
 // --- local Figma extraction ---------------------------------------------------
 
+function makeRouteItem(candidate) {
+  const li = document.createElement('li');
+
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.checked = candidate.included;
+  // Toggling moves the row between the two columns → re-render.
+  check.addEventListener('change', () => { candidate.included = check.checked; renderRoutes(); });
+
+  const name = document.createElement('span');
+  name.className = 'route-name';
+  name.textContent = candidate.name;
+  name.title = candidate.name;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = candidate.route;
+  input.spellcheck = false;
+  input.disabled = !candidate.included; // route only matters for included screens
+  input.addEventListener('input', () => { candidate.route = slugify(input.value); });
+  input.addEventListener('blur', () => { input.value = candidate.route; });
+
+  li.append(check, name, input);
+  return li;
+}
+
+function makeRouteColumn(title, items, emptyText, inProject) {
+  const col = document.createElement('div');
+  col.className = 'routes-col' + (inProject ? ' routes-col--in' : '');
+
+  const head = document.createElement('div');
+  head.className = 'routes-col__head';
+  head.textContent = `${title} (${items.length})`;
+
+  const ul = document.createElement('ul');
+  ul.className = 'routes';
+  if (items.length) {
+    items.forEach((c) => ul.appendChild(makeRouteItem(c)));
+  } else {
+    const empty = document.createElement('li');
+    empty.className = 'routes-empty';
+    empty.textContent = emptyText;
+    ul.appendChild(empty);
+  }
+
+  col.append(head, ul);
+  return col;
+}
+
 function renderRoutes() {
   ui.routesList.innerHTML = '';
-  for (const candidate of routeCandidates) {
-    const li = document.createElement('li');
+  const selected = routeCandidates.filter((c) => c.included);
+  const excluded = routeCandidates.filter((c) => !c.included);
 
-    const check = document.createElement('input');
-    check.type = 'checkbox';
-    check.checked = candidate.included;
-    check.addEventListener('change', () => { candidate.included = check.checked; });
-
-    const name = document.createElement('span');
-    name.className = 'route-name';
-    name.textContent = candidate.name;
-    name.title = candidate.name;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = candidate.route;
-    input.spellcheck = false;
-    input.addEventListener('input', () => { candidate.route = slugify(input.value); });
-    input.addEventListener('blur', () => { input.value = candidate.route; });
-
-    li.append(check, name, input);
-    ui.routesList.appendChild(li);
+  if (ui.routesLabel) {
+    ui.routesLabel.textContent = routeCandidates.length
+      ? `Telas detectadas — ${selected.length} de ${routeCandidates.length} selecionada(s):`
+      : 'Telas detectadas:';
   }
+
+  const columns = document.createElement('div');
+  columns.className = 'routes-columns';
+  columns.append(
+    makeRouteColumn('No projeto', selected, 'Marque telas ao lado para incluir no projeto.', true),
+    makeRouteColumn('Fora do projeto', excluded, 'Todas as telas estão no projeto.', false),
+  );
+  ui.routesList.appendChild(columns);
   ui.routesWrap.hidden = routeCandidates.length === 0;
 }
 
@@ -197,6 +240,31 @@ function mcpImageData(result) {
     }
   }
   return null;
+}
+
+// Shrink a screenshot data-URI before shipping it: full-res Figma PNGs are
+// several MB each and a multi-screen project blows past request-body limits.
+// Downscale to maxW and re-encode as JPEG — plenty of fidelity for the visual
+// critique, a fraction of the bytes. Falls back to the original on any error.
+function downscaleDataUri(dataUri, maxW = 1400, quality = 0.82) {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const scale = img.width > maxW ? maxW / img.width : 1;
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch { resolve(dataUri); }
+      };
+      img.onerror = () => resolve(dataUri);
+      img.src = dataUri;
+    } catch { resolve(dataUri); }
+  });
 }
 
 // Strips MCP boilerplate that pollutes generation prompts: the selection
@@ -610,7 +678,7 @@ async function buildScreenPrompt(candidate, progress) {
       const shot = await api.figmaExtract('get_screenshot', { nodeId: candidate.id });
       if (shot.ok) {
         const img = mcpImageData(shot.result);
-        if (img) designScreenshot = `data:${img.mediaType};base64,${img.data}`;
+        if (img) designScreenshot = await downscaleDataUri(`data:${img.mediaType};base64,${img.data}`);
       }
     }
 

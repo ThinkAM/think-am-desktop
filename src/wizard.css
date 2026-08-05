@@ -1,6 +1,6 @@
 /* Native generation wizard — extends launcher.css */
 
-.shell--wide { max-width: 960px; }
+.shell--wide { max-width: 1280px; }
 
 .brand { align-items: center; }
 
@@ -116,6 +116,22 @@ select option { background: var(--navy-800); }
 .routes input[type="checkbox"] { width: auto; accent-color: var(--cyan-400); flex: none; }
 .routes .route-name { flex: none; min-width: 130px; font-size: 13px; color: var(--slate-300); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .routes input[type="text"] { flex: 1; padding: 8px 10px; font-size: 13px; }
+.routes input[type="text"]:disabled { opacity: 0.5; }
+
+/* Step 2: selected vs not-selected side by side */
+.routes-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .routes-columns { grid-template-columns: 1fr; } }
+.routes-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.routes-col__head {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--slate-400); padding: 0 2px;
+}
+.routes-col--in .routes-col__head { color: var(--cyan-400); }
+.routes-empty {
+  display: block; padding: 10px; border-radius: 10px; font-size: 12px;
+  color: var(--slate-400); border: 1px dashed rgba(148, 163, 184, 0.2);
+  background: transparent;
+}
 
 .progress { margin-top: 16px; }
 #result { margin-top: 8px; }

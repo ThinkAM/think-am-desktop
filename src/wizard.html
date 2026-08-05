@@ -98,10 +98,10 @@
 
       <div id="routes-wrap" hidden>
         <div class="routes-head">
-          <label class="routes-label">Telas detectadas — marque as que entram no projeto e ajuste as rotas:</label>
+          <label class="routes-label" id="routes-label">Telas detectadas — marque as que entram no projeto e ajuste as rotas:</label>
           <button id="clear-btn" class="btn btn--ghost btn--compact" type="button">Limpar lista</button>
         </div>
-        <ul id="routes-list" class="routes"></ul>
+        <div id="routes-list"></div>
         <label class="check">
           <input id="deepContext" type="checkbox" checked />
           Extrair contexto visual por tela ao gerar (mais fiel ao design, mais lento)
