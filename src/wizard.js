@@ -186,6 +186,19 @@ function mcpCodeText(result) {
   return score(best) >= 2 ? best : parts.join('\n');
 }
 
+// get_screenshot returns an image content part (base64 PNG/JPEG). Pull the
+// first image part as { data, mediaType } for the server's visual-critique
+// pass; '' when the result carries no image.
+function mcpImageData(result) {
+  const parts = (result && result.content) || [];
+  for (const p of parts) {
+    if (p && p.type === 'image' && typeof p.data === 'string' && p.data) {
+      return { data: p.data, mediaType: p.mimeType || 'image/png' };
+    }
+  }
+  return null;
+}
+
 // Strips MCP boilerplate that pollutes generation prompts: the selection
 // preamble and the agent-facing "call get_design_context" instruction.
 function cleanMcpText(text) {
@@ -568,6 +581,7 @@ async function buildScreenPrompt(candidate, progress) {
   if (!contextCache.has(candidate.id)) {
     if (progress) progress();
     let designCode = '';
+    let designScreenshot = '';
     let promptExtra = '';
     let extractError = '';
 
@@ -588,6 +602,18 @@ async function buildScreenPrompt(candidate, progress) {
       }
     }
 
+    // Visual-critique ground truth (Option B): a screenshot of the frame. The
+    // server compares the generated component against THIS image and fixes
+    // fidelity gaps (fonts, missing/extra elements, layout) the code-only port
+    // can't see. Best-effort — no get_screenshot tool just skips the critique.
+    if (availableToolNames.has('get_screenshot')) {
+      const shot = await api.figmaExtract('get_screenshot', { nodeId: candidate.id });
+      if (shot.ok) {
+        const img = mcpImageData(shot.result);
+        if (img) designScreenshot = `data:${img.mediaType};base64,${img.data}`;
+      }
+    }
+
     // Last resort only if no design code came back: structural metadata as a
     // weak textual hint in figmaPrompt.
     if (!designCode) {
@@ -597,14 +623,14 @@ async function buildScreenPrompt(candidate, progress) {
           + cleanMcpText(mcpResultText(metadata.result)).slice(0, 3000);
       }
     }
-    contextCache.set(candidate.id, { designCode, promptExtra, extractError });
+    contextCache.set(candidate.id, { designCode, designScreenshot, promptExtra, extractError });
   }
 
-  const cached = contextCache.get(candidate.id) || { designCode: '', promptExtra: '' };
+  const cached = contextCache.get(candidate.id) || { designCode: '', designScreenshot: '', promptExtra: '' };
   const prompt = cached.promptExtra
     ? `${figmaPrompt}\n\nContexto do design (extraído do Figma local via MCP):\n${cached.promptExtra}`
     : figmaPrompt;
-  return { figmaPrompt: prompt, designCode: cached.designCode || '' };
+  return { figmaPrompt: prompt, designCode: cached.designCode || '', designScreenshot: cached.designScreenshot || '' };
 }
 
 async function buildRequest(onProgress) {
@@ -617,7 +643,7 @@ async function buildRequest(onProgress) {
   let firstError = '';
   for (let i = 0; i < selected.length; i++) {
     const candidate = selected[i];
-    const { figmaPrompt, designCode } = await buildScreenPrompt(
+    const { figmaPrompt, designCode, designScreenshot } = await buildScreenPrompt(
       candidate,
       onProgress ? () => onProgress(`Extraindo design da tela ${i + 1}/${selected.length} (${candidate.name})…`) : null,
     );
@@ -630,6 +656,7 @@ async function buildRequest(onProgress) {
       route: candidate.route,
       figmaPrompt,
       designCode,
+      designScreenshot,
       parentRoute: null,
     });
   }
