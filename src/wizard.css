@@ -1,6 +1,8 @@
 /* Native generation wizard — extends launcher.css */
 
-.shell--wide { max-width: 1280px; }
+/* Fluid on large monitors: use most of the viewport (up to 1720px) instead of
+   sitting in a fixed narrow column with big empty margins. */
+.shell--wide { max-width: min(1720px, 94vw); }
 
 .brand { align-items: center; }
 
