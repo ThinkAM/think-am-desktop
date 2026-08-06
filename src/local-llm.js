@@ -178,22 +178,32 @@ async function callBedrock(cfg, systemPrompt, userPrompt) {
 // truncated/mixed response.
 function extractCode(text) {
   if (!text) return null;
-  const fenced = text.match(/```(?:[a-zA-Z]*)\s*\n([\s\S]*?)```/);
+  // Consider EVERY fenced block and prefer one that is a real module — models
+  // sometimes emit a tiny snippet first (e.g. `error: () => {}`) before the
+  // full file; grabbing that fragment and writing it over the component turned
+  // it into "not a module" (TS2306) and the corruption then compounded across
+  // rounds because the fixer re-reads its own bad output as "current content".
+  const blocks = [...text.matchAll(/```(?:[a-zA-Z]*)\s*\n([\s\S]*?)```/g)].map((m) => m[1].trim());
   let code;
-  if (fenced) {
-    code = fenced[1].trim();
+  if (blocks.length) {
+    code = blocks.find((b) => b.includes('@Component') || b.includes('export ')) || blocks[0];
   } else {
     const stripped = text.trim();
     code = stripped.startsWith('import ') || stripped.startsWith('@Component') ? stripped : null;
   }
-  if (code === null) return null;
+  if (!code) return null;
   return looksStructurallyComplete(code) ? code : null;
 }
 
+// Mirrors the server's _looks_structurally_complete: a real component/module,
+// not a fragment. The old brace/paren COUNT was both too weak (a balanced
+// snippet like `error: () => {}` passed) and wrong for real CSS (rgb(),
+// gradients, template `{{ }}` never balance by counting).
 function looksStructurallyComplete(code) {
   if (code.includes('```')) return false;
-  const count = (str, ch) => str.split(ch).length - 1;
-  return count(code, '{') === count(code, '}') && count(code, '(') === count(code, ')');
+  if (!code.includes('@Component') && !code.includes('export ')) return false;
+  const trimmed = code.replace(/\s+$/, '');
+  return trimmed.endsWith('}') || trimmed.endsWith('};');
 }
 
 module.exports = { hasProvider, callLlm, extractCode };
