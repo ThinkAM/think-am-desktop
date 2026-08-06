@@ -341,6 +341,51 @@ ipcMain.handle('figma:extract', async (_e, payload) => {
   }
 });
 
+// Download a Figma image asset (the localhost:3845/assets/* URLs the Dev Mode
+// MCP bakes into the design code). Runs in the MAIN process to dodge the
+// renderer's CORS — returns the bytes as base64 so we can bundle the REAL
+// illustration into the generated project instead of an AI-drawn lookalike.
+ipcMain.handle('figma:fetchAsset', async (_e, url) => {
+  try {
+    if (!/^https?:\/\/(127\.0\.0\.1|localhost)/i.test(String(url || ''))) {
+      return { ok: false, error: 'Only local Figma MCP asset URLs are fetched.' };
+    }
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const buf = Buffer.from(await res.arrayBuffer());
+    return {
+      ok: true,
+      base64: buf.toString('base64'),
+      contentType: res.headers.get('content-type') || '',
+    };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Write the downloaded Figma assets into the saved project so the ported
+// components' `assets/figma/<name>` refs resolve. @angular/build serves the
+// `public/` folder at the web root, so public/assets/figma/x → /assets/figma/x.
+ipcMain.handle('gen:writeAssets', async (_e, payload) => {
+  const { projectPath, assets } = payload || {};
+  try {
+    if (!projectPath || !Array.isArray(assets) || !assets.length) {
+      return { ok: true, written: 0 };
+    }
+    const dir = path.join(projectPath, 'apps', 'web', 'public', 'assets', 'figma');
+    fs.mkdirSync(dir, { recursive: true });
+    let written = 0;
+    for (const a of assets) {
+      if (!a || !a.filename || !a.base64) continue;
+      fs.writeFileSync(path.join(dir, a.filename), Buffer.from(a.base64, 'base64'));
+      written += 1;
+    }
+    return { ok: true, written };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
 // Bridge the extracted design context to the Think A.M. API (which proxies to knowledge).
 ipcMain.handle('figma:generate', async (_e, payload) => {
   const gate = requireArchitect();

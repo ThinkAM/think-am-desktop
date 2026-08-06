@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('thinkam', {
   // Figma MCP bridge
   figmaConnect: (url) => ipcRenderer.invoke('figma:connect', url),
   figmaExtract: (tool, args) => ipcRenderer.invoke('figma:extract', { tool, args }),
+  figmaFetchAsset: (url) => ipcRenderer.invoke('figma:fetchAsset', url),
+  genWriteAssets: (projectPath, assets) => ipcRenderer.invoke('gen:writeAssets', { projectPath, assets }),
   figmaGenerate: (context, projectName) => ipcRenderer.invoke('figma:generate', { context, projectName }),
   // Native generation wizard
   getVersion: () => ipcRenderer.invoke('app:version'),

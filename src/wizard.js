@@ -100,6 +100,35 @@ let jobTimer = null;
 let pendingRequest = null; // request shown in the plan preview; generation uses exactly this
 let lastSaveDir = null; // remembered across saves within this session, pre-fills the folder picker
 const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
+// Real Figma image assets collected across all screens, keyed by local
+// filename → { base64, contentType }. Written into the saved project after
+// generation so the ported components' `assets/figma/<name>` refs resolve.
+const figmaAssets = new Map();
+
+// Find localhost Figma-MCP asset URLs in the design code, download each, and
+// rewrite the reference to `assets/figma/<filename>` (bundled locally). Returns
+// the rewritten design code.
+async function bundleFigmaAssets(designCode) {
+  const urlRe = /https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/[^\s"')]+?\.(?:png|jpe?g|svg|webp|gif)/gi;
+  const urls = Array.from(new Set(designCode.match(urlRe) || []));
+  let out = designCode;
+  for (const url of urls) {
+    const raw = url.split(/[?#]/)[0].split('/').pop() || '';
+    const filename = raw.replace(/[^a-zA-Z0-9._-]/g, '_') || `asset-${figmaAssets.size + 1}.png`;
+    if (!figmaAssets.has(filename)) {
+      try {
+        const r = await api.figmaFetchAsset(url);
+        if (r && r.ok && r.base64) {
+          figmaAssets.set(filename, { base64: r.base64, contentType: r.contentType || '' });
+        }
+      } catch { /* best-effort: leave the ref, server placeholders it */ }
+    }
+    if (figmaAssets.has(filename)) {
+      out = out.split(url).join(`assets/figma/${filename}`);
+    }
+  }
+  return out;
+}
 let availableToolNames = new Set(); // tool names exposed by the connected Figma MCP
 let figmaExtractionBlocked = false; // true when the Figma "Origem da imagem: Baixar" (write-to-disk) mode blocks extraction
 const FIGMA_IMAGE_SOURCE_HELP =
@@ -670,6 +699,12 @@ async function buildScreenPrompt(candidate, progress) {
       }
     }
 
+    // Bundle the REAL Figma images: the design code references illustrations as
+    // localhost:3845/assets/* URLs (only alive while Figma is open, never in the
+    // build). Download them now and rewrite the refs to a stable local path so
+    // the ported screen shows the actual artwork, not an AI-drawn lookalike.
+    if (designCode) designCode = await bundleFigmaAssets(designCode);
+
     // Visual-critique ground truth (Option B): a screenshot of the frame. The
     // server compares the generated component against THIS image and fixes
     // fidelity gaps (fonts, missing/extra elements, layout) the code-only port
@@ -923,6 +958,13 @@ async function deliverLocally() {
   }
 
   ui.resultHint.textContent = `Salvo em ${save.path} (${save.fileCount} arquivo(s))`;
+
+  // Drop the real Figma illustrations into the saved project (public/assets/
+  // figma) so the `assets/figma/*` refs the ported screens use actually render.
+  if (figmaAssets.size) {
+    const assetList = Array.from(figmaAssets, ([filename, a]) => ({ filename, base64: a.base64 }));
+    try { await api.genWriteAssets(save.path, assetList); } catch { /* best-effort */ }
+  }
   // Building (not just installing) locally catches real compile errors — a
   // typo the AI made in a property name, for instance — before the user
   // finds out via a `docker compose up --build` failure minutes into a build.
