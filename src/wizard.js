@@ -104,6 +104,10 @@ const contextCache = new Map(); // figma nodeId → { figmaPrompt, designCode }
 // filename → { base64, contentType }. Written into the saved project after
 // generation so the ported components' `assets/figma/<name>` refs resolve.
 const figmaAssets = new Map();
+// The brand logo, bundled under a STABLE name (assets/figma/logo.<ext>) so the
+// generated login/home reference the SAME logo every time instead of the model
+// picking a random asset hash (which kept showing the wrong image).
+let figmaLogo = '';
 
 // Find localhost Figma-MCP asset URLs in the design code, download each, and
 // rewrite the reference to `assets/figma/<filename>` (bundled locally). Returns
@@ -125,6 +129,18 @@ async function bundleFigmaAssets(designCode) {
     }
     if (figmaAssets.has(filename)) {
       out = out.split(url).join(`assets/figma/${filename}`);
+      // Logo detection: the first asset whose surrounding markup mentions the
+      // brand (Figma node named "Logo"/"Brand") is bundled under a stable name.
+      if (!figmaLogo) {
+        const idx = designCode.indexOf(url);
+        const ctx = designCode.slice(Math.max(0, idx - 220), idx + 60).toLowerCase();
+        if (/logo|marca|\bbrand\b/.test(ctx)) {
+          const ext = (filename.split('.').pop() || 'svg').toLowerCase();
+          const logoName = `logo.${ext}`;
+          figmaAssets.set(logoName, figmaAssets.get(filename));
+          figmaLogo = `assets/figma/${logoName}`;
+        }
+      }
     }
   }
   return out;
@@ -789,6 +805,7 @@ async function buildRequest(onProgress) {
     outputMode,
     customRoutes: routes.length ? routes : null,
     figmaScreens: figmaScreens.length ? figmaScreens : null,
+    figmaLogo: figmaLogo || null,
     llmProvider: provider,
     openaiBaseUrl: provider === 'openai-compatible' ? el('openaiBaseUrl').value.trim() || null : null,
     openaiModel: provider === 'openai-compatible' ? el('openaiModel').value.trim() || null : null,
