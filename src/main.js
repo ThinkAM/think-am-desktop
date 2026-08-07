@@ -660,6 +660,82 @@ function runNpm(cwd, args, fallbackError) {
 const runNpmInstall = (cwd) => runNpm(cwd, ['install'], 'npm install falhou');
 const runNpmBuild = (cwd) => runNpm(cwd, ['run', 'build'], 'npm run build falhou');
 
+// Generic command runner (docker, node) for the runtime validation loop.
+function runCmd(cmd, args, cwd, timeoutMs = 600000) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { cwd, shell: process.platform === 'win32', env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' } });
+    } catch (err) { resolve({ ok: false, code: -1, output: String((err && err.message) || err) }); return; }
+    let output = ''; let done = false;
+    const finish = (code) => { if (done) return; done = true; resolve({ ok: code === 0, code, output: stripAnsi(output).trim() }); };
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(-2); }, timeoutMs);
+    child.stdout.on('data', (d) => { output += d.toString(); });
+    child.stderr.on('data', (d) => { output += d.toString(); });
+    child.on('error', (err) => { output += String((err && err.message) || err); finish(-1); });
+    child.on('close', (code) => { clearTimeout(timer); finish(code); });
+  });
+}
+
+async function waitForApiHealth(url, timeoutMs = 150000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try { const r = await fetch(url); if (r.ok) return true; } catch { /* not up yet */ }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
+}
+
+// Runtime auto-fix: the smoke test reports "POST /<resource> -> HTTP <n> <body>"
+// with no file path, so map the resource to its create DTO and let the model
+// relax it so a valid create stops 400ing.
+async function attemptRuntimeFix(apiSrcDir, smokeError, llmConfig) {
+  const re = /(?:POST|GET)\s+\/([a-z0-9-]+)\s+->\s+HTTP\s+(\d+)\s*([^\n]*)/gi;
+  const seen = new Set(); const touched = [];
+  let m;
+  while ((m = re.exec(smokeError))) {
+    const [, resource, status, body] = m;
+    if (status === '200' || status === '201' || seen.has(resource)) continue;
+    seen.add(resource);
+    const dtoPath = path.join(apiSrcDir, 'modules', resource, 'presentation', 'http', 'dto', `create-${resource}.dto.ts`);
+    if (!fs.existsSync(dtoPath)) continue;
+    const original = fs.readFileSync(dtoPath, 'utf-8');
+    const system = 'You fix a NestJS create DTO so a valid POST no longer 400s. Return ONLY the corrected full file content — no fences, no prose. Make the fields the request omits optional (@IsOptional), relax over-strict types; keep class-validator decorators consistent and imports valid.';
+    const user = `POST /${resource} failed: HTTP ${status} ${body}\n\nFile: create-${resource}.dto.ts\n\nCurrent content:\n${original}`;
+    const r = await callLlm(llmConfig, system, user);
+    if (!r.ok || !r.text) continue;
+    const fixed = extractCode(r.text);
+    if (!fixed || fixed.length < 10) continue;
+    fs.writeFileSync(dtoPath, fixed, 'utf-8');
+    touched.push(`create-${resource}.dto.ts`);
+  }
+  return { touched };
+}
+
+// Fatia 2 of the validation loop: after the local build is green, boot the
+// stack, run the runtime smoke test, and auto-fix runtime failures until the
+// smoke passes (best-effort — skips gracefully if docker/smoke is unavailable).
+ipcMain.handle('gen:runtimeValidate', async (_e, projectDir, llmConfig) => {
+  const smokePath = path.join(projectDir, 'apps', 'api', 'smoke.mjs');
+  if (!fs.existsSync(smokePath)) return { ok: true, skipped: 'sem smoke.mjs (gere de novo para ativar)' };
+  const apiSrc = path.join(projectDir, 'apps', 'api', 'src');
+  const health = 'http://localhost:3000/api/health';
+  const MAX = 2;
+  let smoke = null; const fixedAll = [];
+  for (let attempt = 0; attempt <= MAX; attempt++) {
+    const up = await runCmd('docker', ['compose', 'up', '-d', '--build'], projectDir, 900000);
+    if (!up.ok) return { ok: false, stage: 'docker', error: up.output.slice(-1500), fixedFiles: [...new Set(fixedAll)] };
+    if (!(await waitForApiHealth(health))) return { ok: false, stage: 'health', error: 'A API não respondeu em /api/health a tempo.', fixedFiles: [...new Set(fixedAll)] };
+    smoke = await runCmd('node', [smokePath], projectDir, 90000);
+    if (smoke.ok) return { ok: true, attempts: attempt, fixedFiles: [...new Set(fixedAll)] };
+    if (attempt === MAX || !hasProvider(llmConfig)) break;
+    const fix = await attemptRuntimeFix(apiSrc, smoke.output, llmConfig);
+    if (!fix.touched.length) break; // nothing actionable — stop
+    fixedAll.push(...fix.touched);
+  }
+  return { ok: false, stage: 'smoke', error: smoke ? smoke.output.slice(-1500) : 'o smoke não rodou', fixedFiles: [...new Set(fixedAll)] };
+});
+
 // Two-phase download: fetch keeps the zip in memory and returns its file
 // structure for preview; save extracts it onto disk in a user-chosen folder
 // and runs `npm install` locally — the heavy dependency-resolution work

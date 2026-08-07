@@ -999,8 +999,23 @@ async function deliverLocally() {
     : '';
 
   if (install.ok) {
-    ui.installStatus.className = 'hint hint--left plan-ok';
-    ui.installStatus.textContent = `✓ Projeto pronto: dependências instaladas e build validada com sucesso.${fixedNote}`;
+    // Fatia 2 do loop de validação: build verde != app funciona. Sobe o stack,
+    // roda o smoke (criar cada recurso) e auto-corrige runtime até verde.
+    ui.installStatus.className = 'hint hint--left muted';
+    ui.installStatus.textContent = `✓ Build validada.${fixedNote} Subindo o stack e validando o runtime (criar registros)… pode levar alguns minutos.`;
+    let rt = { ok: true, skipped: 'runtime não executado' };
+    try { rt = await api.genRuntimeValidate(save.path, pendingRequest); } catch { /* best-effort */ }
+    const rtFix = (rt.fixedFiles && rt.fixedFiles.length) ? ` A IA corrigiu no runtime: ${rt.fixedFiles.join(', ')}.` : '';
+    if (rt.ok) {
+      ui.installStatus.className = 'hint hint--left plan-ok';
+      ui.installStatus.textContent = rt.skipped
+        ? `✓ Projeto pronto: build validada.${fixedNote} (runtime: ${rt.skipped})`
+        : `✓ Projeto pronto: build + runtime validados — o app sobe e cria registros de verdade.${fixedNote}${rtFix}`;
+    } else {
+      ui.installStatus.className = 'hint hint--left plan-bad';
+      ui.installStatus.textContent = `⚠ Build ok, mas o runtime falhou (${rt.stage}): ${String(rt.error || '').slice(0, 400)}${rtFix} — rode 'docker compose up --build' para investigar.`;
+      ui.retryLocalBtn.hidden = false;
+    }
   } else {
     const failed = (install.results || []).filter((x) => !x.ok);
     const detail = failed

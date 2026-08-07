@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('thinkam', {
   genPickFolder: (defaultPath) => ipcRenderer.invoke('gen:pickFolder', defaultPath),
   genSave: (destDir) => ipcRenderer.invoke('gen:save', destDir),
   genNpmInstallAndBuild: (projectDir, llmConfig) => ipcRenderer.invoke('gen:npmInstallAndBuild', projectDir, llmConfig),
+  genRuntimeValidate: (projectDir, llmConfig) => ipcRenderer.invoke('gen:runtimeValidate', projectDir, llmConfig),
   saveWizardInputs: (inputs) => ipcRenderer.invoke('wizard:saveInputs', inputs),
   loadWizardInputs: () => ipcRenderer.invoke('wizard:loadInputs'),
   listLlmModels: (request) => ipcRenderer.invoke('llm:models', request),
