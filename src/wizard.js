@@ -1246,6 +1246,13 @@ function pollJob(jobId) {
   stopPolling();
   let failStreak = 0;
   let slowMode = false;
+  // Stall guard: if the server keeps answering but the progress never advances,
+  // the generation task died server-side (orphan job). The server flips such a
+  // job to "failed" after ~15 min; this is the desktop's own last-resort net so
+  // it never polls a dead job forever even if that server check doesn't fire.
+  let lastProgress = '';
+  let lastProgressAt = Date.now();
+  const STALL_MS = 18 * 60 * 1000;
 
   // Perda de conexão NUNCA vira "Geração falhou": o job continua rodando no
   // servidor. Depois de ~30s sem contato, passa a reconectar a cada 30s e
@@ -1277,7 +1284,18 @@ function pollJob(jobId) {
     }
     failStreak = 0;
     if (r.progress) ui.genText.textContent = r.progress;
+    // Track progress advancement for the stall guard.
+    if (r.progress && r.progress !== lastProgress) {
+      lastProgress = r.progress;
+      lastProgressAt = Date.now();
+    }
     const status = String(r.status || '').toLowerCase();
+    if (status !== 'completed' && status !== 'completed_with_warnings' && status !== 'failed'
+        && Date.now() - lastProgressAt > STALL_MS) {
+      stopPolling();
+      failGeneration('A geração travou no servidor (sem avanço por vários minutos). Tente gerar novamente.');
+      return;
+    }
     if (status === 'completed' || status === 'completed_with_warnings') {
       stopPolling();
       if (r.downloadUrl) showStructure(r.downloadUrl);
