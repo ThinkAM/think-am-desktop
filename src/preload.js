@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('thinkam', {
   genInferFlow: (payload) => ipcRenderer.invoke('gen:inferFlow', payload),
   genSaveText: (content, defaultName) => ipcRenderer.invoke('gen:saveText', { content, defaultName }),
   genOpenFlowFile: () => ipcRenderer.invoke('gen:openFlowFile'),
+  copyToClipboard: (text) => ipcRenderer.invoke('clipboard:write', text),
   saveWizardInputs: (inputs) => ipcRenderer.invoke('wizard:saveInputs', inputs),
   loadWizardInputs: () => ipcRenderer.invoke('wizard:loadInputs'),
   listLlmModels: (request) => ipcRenderer.invoke('llm:models', request),

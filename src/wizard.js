@@ -55,6 +55,7 @@ const ui = {
   result: el('result'),
   files: el('files'),
   retryLocalBtn: el('retry-local-btn'),
+  copyErrorBtn: el('copy-error-btn'),
   resultHint: el('result-hint'),
   installStatus: el('install-status'),
   runError: el('run-error'),
@@ -1173,6 +1174,7 @@ async function chooseFolder() {
 // 15-20 minute server generation just to redo the local part.
 async function deliverLocally() {
   ui.retryLocalBtn.hidden = true;
+  ui.copyErrorBtn.hidden = true;
   ui.installStatus.hidden = false;
   ui.installStatus.className = 'hint hint--left muted';
   ui.installStatus.textContent = `Extraindo para ${lastSaveDir}…`;
@@ -1226,6 +1228,7 @@ async function deliverLocally() {
       ui.installStatus.className = 'hint hint--left plan-bad';
       ui.installStatus.textContent = `⚠ Build ok, mas o runtime falhou (${rt.stage}): ${String(rt.error || '').slice(0, 400)}${rtFix} — rode 'docker compose up --build' para investigar.`;
       ui.retryLocalBtn.hidden = false;
+      setErrorReport('runtime', save.path, String(rt.error || ''), rtFix);
     }
   } else {
     const failed = (install.results || []).filter((x) => !x.ok);
@@ -1239,7 +1242,38 @@ async function deliverLocally() {
     ui.installStatus.className = 'hint hint--left plan-bad';
     ui.installStatus.textContent = `⚠ Falha em ${failed.map((x) => x.app).join(', ') || 'o projeto'}: ${detail}${fixedNote}`;
     ui.retryLocalBtn.hidden = false;
+    setErrorReport('build', save.path, detail, fixedNote);
   }
+}
+
+// Builds the full, copy-friendly error report (no truncation) and reveals the
+// "Copiar erro" button, so the user can paste it into an AI to fix the project
+// they already have on disk.
+let lastErrorReport = '';
+function setErrorReport(stage, projectPath, error, fixNote) {
+  const stageLabel = stage === 'runtime'
+    ? 'Build OK, mas o runtime falhou ao criar registros (teste smoke).'
+    : 'A build local falhou.';
+  const repro = stage === 'runtime'
+    ? `cd "${projectPath}"\ndocker compose up -d --build\nnode apps/api/smoke.mjs`
+    : `cd "${projectPath}"\n# apps/api: npm install && npm run build\n# apps/web: npm install && npm run build`;
+  lastErrorReport = [
+    `Projeto Think A.M. gerado em: ${projectPath}`,
+    `Stack: NestJS + Prisma + PostgreSQL (apps/api) + Angular (apps/web) + Docker + Keycloak.`,
+    ``,
+    stageLabel,
+    ``,
+    `ERRO:`,
+    String(error || '').trim(),
+    fixNote ? `\n${fixNote.trim()}` : '',
+    ``,
+    `Como reproduzir localmente:`,
+    repro,
+    ``,
+    `Peço que investigue e corrija o(s) arquivo(s) do projeto para que o erro acima deixe de ocorrer.`,
+  ].filter((l) => l !== null && l !== undefined).join('\n');
+  ui.copyErrorBtn.hidden = false;
+  ui.copyErrorBtn.textContent = '📋 Copiar erro (para resolver via IA)';
 }
 
 function pollJob(jobId) {
@@ -1452,6 +1486,11 @@ async function init() {
   ui.confirmBtn.addEventListener('click', generate);
   ui.adjustBtn.addEventListener('click', () => { ui.plan.hidden = true; pendingRequest = null; });
   ui.retryLocalBtn.addEventListener('click', deliverLocally);
+  ui.copyErrorBtn.addEventListener('click', async () => {
+    const r = await api.copyToClipboard(lastErrorReport);
+    ui.copyErrorBtn.textContent = r && r.ok ? '✓ Copiado!' : '⚠ Não consegui copiar';
+    setTimeout(() => { ui.copyErrorBtn.textContent = '📋 Copiar erro (para resolver via IA)'; }, 2500);
+  });
   ui.reuseBtn.addEventListener('click', async () => {
     applyInputs(await api.loadWizardInputs());
     ui.reuseBtn.hidden = true;

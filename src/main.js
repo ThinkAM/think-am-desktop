@@ -514,6 +514,17 @@ ipcMain.handle('gen:saveText', async (_e, { content, defaultName } = {}) => {
   }
 });
 
+// Copies text (e.g. a build/runtime error) to the clipboard so the user can
+// paste it into an AI/chat to fix the downloaded project.
+ipcMain.handle('clipboard:write', async (_e, text) => {
+  try {
+    require('electron').clipboard.writeText(String(text || ''));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
 // Lets the user pick a flow file (drawio XML / JSON) to upload for the de/para.
 ipcMain.handle('gen:openFlowFile', async () => {
   try {
