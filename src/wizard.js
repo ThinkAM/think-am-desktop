@@ -95,6 +95,11 @@ function goToStep(n) {
 }
 
 let outputMode = 'template';
+// Review step: what the AI understood (flow + colors), EDITABLE by the user
+// before generation. On confirm these override the server's own inference so a
+// correction here actually sticks (instead of being re-guessed each run).
+const reviewState = { flow: null, colors: [], drawio: '', svg: '' };
+let reviewWired = false;
 let routeCandidates = []; // { id, name, route, included }
 let jobTimer = null;
 let pendingRequest = null; // request shown in the plan preview; generation uses exactly this
@@ -900,9 +905,176 @@ async function showPlan() {
     }
     renderPlan(r.manifest);
     ui.plan.hidden = false;
+    // Populate the editable "Revisar interpretação" panel (flow + colors + logo).
+    loadReview();
   } finally {
     ui.planBtn.disabled = false;
     ui.planBtn.textContent = 'Ver plano de geração';
+  }
+}
+
+// --- review step: correct what the AI understood before generating -------------
+
+// Resolves the detected brand logo to a data-URI for preview, from the assets
+// the desktop already bundled (keyed by filename under assets/figma/).
+function reviewLogoDataUri() {
+  if (!figmaLogo) return '';
+  const name = figmaLogo.split('/').pop();
+  const asset = figmaAssets.get(name);
+  if (!asset || !asset.base64) return '';
+  return `data:${asset.contentType || 'image/png'};base64,${asset.base64}`;
+}
+
+function renderReviewLogo() {
+  const img = el('review-logo-img');
+  const empty = el('review-logo-empty');
+  const uri = reviewLogoDataUri();
+  if (uri) {
+    img.src = uri; img.hidden = false; empty.hidden = true;
+  } else {
+    img.hidden = true; empty.hidden = false;
+  }
+}
+
+function renderReviewColors() {
+  const host = el('review-colors');
+  host.innerHTML = '';
+  reviewState.colors.forEach((hex, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'review-swatch';
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : '#0f766e';
+    const label = document.createElement('span');
+    label.className = 'review-hex';
+    label.textContent = input.value;
+    const del = document.createElement('button');
+    del.className = 'review-del'; del.type = 'button'; del.title = 'Remover'; del.textContent = '✕';
+    input.addEventListener('input', () => { reviewState.colors[i] = input.value; label.textContent = input.value; });
+    del.addEventListener('click', () => { reviewState.colors.splice(i, 1); renderReviewColors(); });
+    wrap.append(input, label, del);
+    host.appendChild(wrap);
+  });
+}
+
+function renderReviewFlow() {
+  const host = el('review-flow');
+  host.innerHTML = reviewState.svg || '<span class="muted">Sem fluxo para exibir.</span>';
+}
+
+// Lets the user pick a new logo image (in-renderer, no IPC): re-bundles it under
+// the SAME stable path so generation references the corrected logo.
+function pickNewLogo() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/png,image/jpeg,image/svg+xml,image/webp';
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUri = String(reader.result || '');
+      const m = /^data:([^;]+);base64,(.*)$/.exec(dataUri);
+      if (!m) { showError('Não consegui ler essa imagem.'); return; }
+      const contentType = m[1];
+      const base64 = m[2];
+      const ext = contentType.includes('svg') ? 'svg' : contentType.includes('jpeg') ? 'jpg' : contentType.includes('webp') ? 'webp' : 'png';
+      const name = `logo.${ext}`;
+      figmaAssets.set(name, { base64, contentType });
+      figmaLogo = `assets/figma/${name}`;
+      renderReviewLogo();
+    };
+    reader.readAsDataURL(file);
+  });
+  input.click();
+}
+
+function setReviewFlowStatus(msg, kind) {
+  const s = el('review-flow-status');
+  if (!msg) { s.hidden = true; return; }
+  s.hidden = false;
+  s.textContent = msg;
+  s.className = 'hint hint--left ' + (kind === 'bad' ? 'plan-bad' : kind === 'ok' ? 'plan-ok' : 'muted');
+}
+
+// Builds the LLM/provider slice of the infer payload from the current wizard
+// fields so the flow inference uses the same BYOK provider as generation.
+function reviewProviderPayload() {
+  const provider = ui.provider.value || null;
+  return {
+    llm_provider: provider,
+    openai_base_url: provider === 'openai-compatible' ? el('openaiBaseUrl').value.trim() || null : null,
+    openai_api_key: provider === 'openai-compatible' ? el('openaiKey').value || null : null,
+    openai_model: provider === 'openai-compatible' ? el('openaiModel').value.trim() || null : null,
+    anthropic_api_key: provider === 'anthropic' ? el('anthropicKey').value || null : null,
+    anthropic_model: provider === 'anthropic' ? el('anthropicModel').value : null,
+    bedrock_region: provider === 'bedrock' ? el('bedrockRegion').value.trim() || null : null,
+    bedrock_access_key_id: provider === 'bedrock' ? el('bedrockKeyId').value || null : null,
+    bedrock_secret_access_key: provider === 'bedrock' ? el('bedrockSecret').value || null : null,
+    bedrock_model: provider === 'bedrock' ? el('bedrockModel').value : null,
+  };
+}
+
+function applyInferResult(r) {
+  reviewState.flow = r.flow || reviewState.flow;
+  reviewState.drawio = r.drawio || '';
+  reviewState.svg = r.svg || '';
+  const palette = r.palette || {};
+  const colors = Array.isArray(palette) ? palette : (palette.colors || [palette.primary, palette.secondary].filter(Boolean));
+  reviewState.colors = (colors || []).filter((c) => /^#[0-9a-fA-F]{6}$/.test(String(c)));
+  renderReviewFlow();
+  renderReviewColors();
+  renderReviewLogo();
+}
+
+function wireReview() {
+  if (reviewWired) return;
+  reviewWired = true;
+  el('review-logo-btn').addEventListener('click', pickNewLogo);
+  el('review-color-add').addEventListener('click', () => { reviewState.colors.push('#0f766e'); renderReviewColors(); });
+  el('review-flow-drawio').addEventListener('click', async () => {
+    if (!reviewState.drawio) return;
+    await api.genSaveText(reviewState.drawio, `${(ui.projName.value.trim() || 'fluxo')}.drawio`);
+  });
+  el('review-flow-img').addEventListener('click', async () => {
+    if (!reviewState.svg) return;
+    await api.genSaveText(reviewState.svg, `${(ui.projName.value.trim() || 'fluxo')}.svg`);
+  });
+  el('review-flow-upload').addEventListener('click', async () => {
+    const picked = await api.genOpenFlowFile();
+    if (!picked.ok) return;
+    setReviewFlowStatus('Mapeando seu fluxo…');
+    const r = await api.genInferFlow({
+      figma_screens: pendingRequest ? pendingRequest.figmaScreens : [],
+      description: ui.projDesc.value.trim() || null,
+      external_model: picked.content,
+      ...reviewProviderPayload(),
+    });
+    if (!r.ok) { setReviewFlowStatus(r.error || 'Falha ao mapear o fluxo enviado.', 'bad'); return; }
+    applyInferResult(r);
+    setReviewFlowStatus('Fluxo do seu arquivo aplicado. Você ainda pode ajustar as cores/logo.', 'ok');
+  });
+}
+
+// Populates the review panel with the AI's interpretation once the plan is shown.
+// Best-effort: a failure here never blocks generation.
+async function loadReview() {
+  wireReview();
+  const review = el('review');
+  reviewState.flow = null; reviewState.drawio = ''; reviewState.svg = ''; reviewState.colors = [];
+  el('review-flow').innerHTML = '<span class="muted">Carregando fluxo…</span>';
+  setReviewFlowStatus('');
+  try {
+    const r = await api.genInferFlow({
+      figma_screens: pendingRequest ? pendingRequest.figmaScreens : [],
+      description: ui.projDesc.value.trim() || null,
+      ...reviewProviderPayload(),
+    });
+    if (!r.ok) { review.hidden = true; return; }
+    applyInferResult(r);
+    review.hidden = false;
+  } catch {
+    review.hidden = true;
   }
 }
 
@@ -1080,6 +1252,11 @@ function pollJob(jobId) {
 
 async function generate() {
   if (!pendingRequest) return;
+  // Thread the user's corrections from the review step so they drive generation
+  // (server uses the confirmed flow verbatim + these brand colors).
+  if (reviewState.flow) pendingRequest.processFlow = reviewState.flow;
+  if (reviewState.colors.length) pendingRequest.colors = reviewState.colors;
+  pendingRequest.figmaLogo = figmaLogo || null; // may have been replaced in review
   if (!lastSaveDir) {
     // Shouldn't normally happen — Step 1 already requires this before you can
     // reach Step 4 — but defend against pendingRequest surviving a folder reset.

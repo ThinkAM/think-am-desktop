@@ -476,6 +476,60 @@ ipcMain.handle('gen:generate', async (_e, request) => {
   }
 });
 
+// Review step: infer the business process flow from the Figma screens so the
+// user can SEE and CORRECT what the AI understood before generating. Returns
+// { flow, drawio, svg, palette }. Also accepts an external_flow to run the
+// de/para mapping when the user uploads their own flow.
+ipcMain.handle('gen:inferFlow', async (_e, payload) => {
+  const gate = requireAuth();
+  if (gate) return { ok: false, ...gate };
+  const auth = loadAuth();
+  try {
+    const r = await apiJson(`${apiBase()}/api/code-generation/process-flow/infer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+      body: JSON.stringify(payload || {}),
+    });
+    if (!r.ok) return { ok: false, status: r.status, error: extractApiError(r.body, r.status) };
+    const b = r.body || {};
+    return { ok: true, flow: b.flow, drawio: b.drawio, svg: b.svg, palette: b.palette || [] };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Saves review-step artifacts to disk (download the drawio XML / the SVG image).
+// `content` is a string; `defaultName` seeds the save dialog.
+ipcMain.handle('gen:saveText', async (_e, { content, defaultName } = {}) => {
+  try {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: defaultName || 'fluxo.txt',
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    require('fs').writeFileSync(filePath, String(content || ''), 'utf8');
+    return { ok: true, path: filePath };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Lets the user pick a flow file (drawio XML / JSON) to upload for the de/para.
+ipcMain.handle('gen:openFlowFile', async () => {
+  try {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'Fluxo', extensions: ['drawio', 'xml', 'json', 'txt'] }],
+    });
+    if (canceled || !filePaths || !filePaths[0]) return { ok: false, canceled: true };
+    const content = require('fs').readFileSync(filePaths[0], 'utf8');
+    return { ok: true, content, path: filePaths[0] };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
 // Polls an async generation job (knowledge JSON is snake_case; tolerate both).
 ipcMain.handle('gen:job', async (_e, jobId) => {
   const gate = requireAuth();

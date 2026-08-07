@@ -186,6 +186,38 @@
       <div id="plan" hidden>
         <h3 class="section-title">Plano de geração</h3>
         <div id="plan-body" class="plan-body"></div>
+
+        <div id="review" class="review" hidden>
+          <h3 class="section-title">Revisar interpretação</h3>
+          <p class="hint hint--left muted">Confira e <strong>corrija</strong> o que a IA entendeu antes de gerar. As correções abaixo passam a valer na geração.</p>
+
+          <div class="review-block">
+            <h4 class="review-title">Logo</h4>
+            <div class="review-logo">
+              <img id="review-logo-img" alt="logo detectada" hidden>
+              <span id="review-logo-empty" class="muted">Nenhuma logo detectada.</span>
+              <button id="review-logo-btn" class="btn btn--ghost btn--sm" type="button">Trocar logo…</button>
+            </div>
+          </div>
+
+          <div class="review-block">
+            <h4 class="review-title">Cores da marca</h4>
+            <div id="review-colors" class="review-colors"></div>
+            <button id="review-color-add" class="btn btn--ghost btn--sm" type="button">+ cor</button>
+          </div>
+
+          <div class="review-block">
+            <h4 class="review-title">Fluxo do processo</h4>
+            <div id="review-flow" class="review-flow"><span class="muted">Carregando fluxo…</span></div>
+            <div class="review-flow-actions">
+              <button id="review-flow-drawio" class="btn btn--ghost btn--sm" type="button">Baixar .drawio</button>
+              <button id="review-flow-img" class="btn btn--ghost btn--sm" type="button">Baixar imagem</button>
+              <button id="review-flow-upload" class="btn btn--ghost btn--sm" type="button">Enviar meu fluxo…</button>
+            </div>
+            <p id="review-flow-status" class="hint hint--left muted" hidden></p>
+          </div>
+        </div>
+
         <div class="plan-actions">
           <button id="confirm-btn" class="btn btn--primary" type="button">Confirmar e gerar</button>
           <button id="adjust-btn" class="btn btn--ghost" type="button">Ajustar</button>
