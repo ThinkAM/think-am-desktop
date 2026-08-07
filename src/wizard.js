@@ -37,6 +37,7 @@ const ui = {
   clearBtn: el('clear-btn'),
   detectHint: el('detect-hint'),
   aiCard: el('ai-card'),
+  reviewCard: el('review-card'),
   provider: el('provider'),
   provOpenai: el('prov-openai'),
   provAnthropic: el('prov-anthropic'),
@@ -65,8 +66,13 @@ const ui = {
 
 // --- horizontal stepper: project → figma → IA → gerar --------------------------
 
-const STEP_SECTIONS = [ui.projectCard, ui.figmaCard, ui.aiCard, ui.runCard];
+const STEP_SECTIONS = [ui.projectCard, ui.figmaCard, ui.aiCard, ui.reviewCard, ui.runCard];
+const REVIEW_STEP = 4;
 let currentStep = 1;
+// The built request is cached across the review/generate steps; rebuilt only when
+// the inputs feeding it change (screens, provider) so we don't re-extract design
+// from Figma on every navigation.
+let requestDirty = true;
 
 function updateStepper() {
   document.querySelectorAll('.stepper__item').forEach((item) => {
@@ -92,6 +98,7 @@ function goToStep(n) {
   STEP_SECTIONS.forEach((section, i) => { section.hidden = i + 1 !== n; });
   updateStepper();
   ui.projectCard.closest('main').scrollTo({ top: 0, behavior: 'smooth' });
+  if (n === REVIEW_STEP) enterReview();
 }
 
 let outputMode = 'template';
@@ -423,6 +430,7 @@ function parseScreens(text) {
 
 async function detectScreens() {
   showError('');
+  requestDirty = true; // new screens → the built request must be rebuilt
   figmaExtractionBlocked = false; // re-probed below; a fresh detect clears a stale block
   setDot(ui.figmaDot, 'loading');
   ui.figmaText.textContent = 'Conectando ao Figma MCP local…';
@@ -584,6 +592,7 @@ async function validateDesignExtraction() {
 
 function clearScreens() {
   routeCandidates = [];
+  requestDirty = true;
   figmaExtractionBlocked = false;
   renderRoutes();
   setDot(ui.figmaDot, null);
@@ -594,6 +603,7 @@ function clearScreens() {
 // --- provider (BYOK) ----------------------------------------------------------
 
 function syncProviderFields() {
+  requestDirty = true; // provider change alters the inference in the built request
   const p = ui.provider.value;
   ui.provOpenai.classList.toggle('hidden', p !== 'openai-compatible');
   ui.provAnthropic.classList.toggle('hidden', p !== 'anthropic');
@@ -895,18 +905,20 @@ async function showPlan() {
   ui.planBtn.disabled = true;
   ui.planBtn.textContent = 'Montando plano…';
   try {
-    pendingRequest = await buildRequest((msg) => { ui.planBtn.textContent = msg; });
+    // The request was already built in the review step (step 4); rebuild only if
+    // it's missing/stale. Corrections from the review are threaded at generate().
+    if (requestDirty || !pendingRequest) {
+      pendingRequest = await buildRequest((msg) => { ui.planBtn.textContent = msg; });
+      requestDirty = false;
+    }
     ui.planBtn.textContent = 'Consultando o plano de geração…';
     const r = await api.genPreview(pendingRequest);
     if (!r.ok) {
-      pendingRequest = null;
       showError(r.error || 'Falha ao montar o plano.');
       return;
     }
     renderPlan(r.manifest);
     ui.plan.hidden = false;
-    // Populate the editable "Revisar interpretação" panel (flow + colors + logo).
-    loadReview();
   } finally {
     ui.planBtn.disabled = false;
     ui.planBtn.textContent = 'Ver plano de geração';
@@ -1056,13 +1068,41 @@ function wireReview() {
   });
 }
 
-// Populates the review panel with the AI's interpretation once the plan is shown.
-// Best-effort: a failure here never blocks generation.
-async function loadReview() {
+// Step 4: prepare the request (design extraction) then load the AI's reading.
+// Preserves the user's edits when they navigate back here from generation — only
+// reloads fresh when the request was (re)built or nothing was loaded yet.
+async function enterReview() {
   wireReview();
-  const review = el('review');
+  const status = el('review-status');
+  let rebuilt = false;
+  if (requestDirty || !pendingRequest) {
+    status.hidden = false;
+    setDot(el('review-dot'), 'loading');
+    el('review-text').textContent = 'Analisando telas…';
+    try {
+      pendingRequest = await buildRequest((msg) => { el('review-text').textContent = msg; });
+      requestDirty = false;
+      rebuilt = true;
+    } catch (err) {
+      setDot(el('review-dot'), 'bad');
+      el('review-text').textContent = 'Falha ao preparar a revisão: ' + String((err && err.message) || err);
+      return;
+    }
+    status.hidden = true;
+  }
+  if (rebuilt || !reviewState.flow) {
+    await loadReview();
+  } else {
+    renderReviewLogo(); renderReviewColors(); renderReviewFlow();
+  }
+}
+
+// Populates the review panel with the AI's interpretation. Best-effort: a failure
+// here never blocks generation — the user can still upload their own flow.
+async function loadReview() {
   reviewState.flow = null; reviewState.drawio = ''; reviewState.svg = ''; reviewState.colors = [];
   el('review-flow').innerHTML = '<span class="muted">Carregando fluxo…</span>';
+  renderReviewLogo();
   setReviewFlowStatus('');
   try {
     const r = await api.genInferFlow({
@@ -1070,11 +1110,10 @@ async function loadReview() {
       description: ui.projDesc.value.trim() || null,
       ...reviewProviderPayload(),
     });
-    if (!r.ok) { review.hidden = true; return; }
+    if (!r.ok) { setReviewFlowStatus('Não consegui inferir o fluxo automaticamente — envie o seu, se quiser.', 'muted'); return; }
     applyInferResult(r);
-    review.hidden = false;
   } catch {
-    review.hidden = true;
+    setReviewFlowStatus('Não consegui inferir o fluxo automaticamente — envie o seu, se quiser.', 'muted');
   }
 }
 

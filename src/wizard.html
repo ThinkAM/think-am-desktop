@@ -29,7 +29,8 @@
         <li class="stepper__item" data-step="1"><span class="stepper__dot">1</span><span class="stepper__label">Projeto</span></li>
         <li class="stepper__item" data-step="2"><span class="stepper__dot">2</span><span class="stepper__label">Figma</span></li>
         <li class="stepper__item" data-step="3"><span class="stepper__dot">3</span><span class="stepper__label">IA</span></li>
-        <li class="stepper__item" data-step="4"><span class="stepper__dot">4</span><span class="stepper__label">Gerar</span></li>
+        <li class="stepper__item" data-step="4"><span class="stepper__dot">4</span><span class="stepper__label">Revisar</span></li>
+        <li class="stepper__item" data-step="5"><span class="stepper__dot">5</span><span class="stepper__label">Gerar</span></li>
       </ol>
     </nav>
 
@@ -176,8 +177,51 @@
     </section>
 
     <!-- Plan preview → generate → structure preview → save -->
+    <section id="review-card" class="card" hidden>
+      <h2 class="card__title"><span class="stepnum">4</span> Revisar</h2>
+      <p class="card__sub">Confira e <strong>corrija</strong> o que a IA entendeu — logo, cores e fluxo. As correções passam a valer na geração.</p>
+
+      <div id="review-status" class="status" hidden>
+        <span class="dot" id="review-dot"></span>
+        <span id="review-text">Analisando telas…</span>
+      </div>
+
+      <div id="review" class="review">
+        <div class="review-block">
+          <h4 class="review-title">Logo</h4>
+          <div class="review-logo">
+            <img id="review-logo-img" alt="logo detectada" hidden>
+            <span id="review-logo-empty" class="muted">Nenhuma logo detectada.</span>
+            <button id="review-logo-btn" class="btn btn--ghost btn--sm" type="button">Trocar logo…</button>
+          </div>
+        </div>
+
+        <div class="review-block">
+          <h4 class="review-title">Cores da marca</h4>
+          <div id="review-colors" class="review-colors"></div>
+          <button id="review-color-add" class="btn btn--ghost btn--sm" type="button">+ cor</button>
+        </div>
+
+        <div class="review-block">
+          <h4 class="review-title">Fluxo do processo</h4>
+          <div id="review-flow" class="review-flow"><span class="muted">Carregando fluxo…</span></div>
+          <div class="review-flow-actions">
+            <button id="review-flow-drawio" class="btn btn--ghost btn--sm" type="button">Baixar .drawio</button>
+            <button id="review-flow-img" class="btn btn--ghost btn--sm" type="button">Baixar imagem</button>
+            <button id="review-flow-upload" class="btn btn--ghost btn--sm" type="button">Enviar meu fluxo…</button>
+          </div>
+          <p id="review-flow-status" class="hint hint--left muted" hidden></p>
+        </div>
+      </div>
+
+      <div class="step-nav">
+        <button class="btn btn--ghost" type="button" data-back>← Voltar</button>
+        <button class="btn btn--primary" type="button" data-next>Ir para geração →</button>
+      </div>
+    </section>
+
     <section id="run-card" class="card" hidden>
-      <h2 class="card__title"><span class="stepnum">4</span> Gerar</h2>
+      <h2 class="card__title"><span class="stepnum">5</span> Gerar</h2>
       <div class="step-nav step-nav--start" id="run-back-nav">
         <button class="btn btn--ghost" type="button" data-back>← Voltar</button>
       </div>
@@ -186,37 +230,6 @@
       <div id="plan" hidden>
         <h3 class="section-title">Plano de geração</h3>
         <div id="plan-body" class="plan-body"></div>
-
-        <div id="review" class="review" hidden>
-          <h3 class="section-title">Revisar interpretação</h3>
-          <p class="hint hint--left muted">Confira e <strong>corrija</strong> o que a IA entendeu antes de gerar. As correções abaixo passam a valer na geração.</p>
-
-          <div class="review-block">
-            <h4 class="review-title">Logo</h4>
-            <div class="review-logo">
-              <img id="review-logo-img" alt="logo detectada" hidden>
-              <span id="review-logo-empty" class="muted">Nenhuma logo detectada.</span>
-              <button id="review-logo-btn" class="btn btn--ghost btn--sm" type="button">Trocar logo…</button>
-            </div>
-          </div>
-
-          <div class="review-block">
-            <h4 class="review-title">Cores da marca</h4>
-            <div id="review-colors" class="review-colors"></div>
-            <button id="review-color-add" class="btn btn--ghost btn--sm" type="button">+ cor</button>
-          </div>
-
-          <div class="review-block">
-            <h4 class="review-title">Fluxo do processo</h4>
-            <div id="review-flow" class="review-flow"><span class="muted">Carregando fluxo…</span></div>
-            <div class="review-flow-actions">
-              <button id="review-flow-drawio" class="btn btn--ghost btn--sm" type="button">Baixar .drawio</button>
-              <button id="review-flow-img" class="btn btn--ghost btn--sm" type="button">Baixar imagem</button>
-              <button id="review-flow-upload" class="btn btn--ghost btn--sm" type="button">Enviar meu fluxo…</button>
-            </div>
-            <p id="review-flow-status" class="hint hint--left muted" hidden></p>
-          </div>
-        </div>
 
         <div class="plan-actions">
           <button id="confirm-btn" class="btn btn--primary" type="button">Confirmar e gerar</button>
