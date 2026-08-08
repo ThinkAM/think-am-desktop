@@ -1441,9 +1441,17 @@ async function generate() {
 // --- input reuse ----------------------------------------------------------------
 
 function collectInputs() {
+  // Persist the detected brand logo (path + bytes) so "aproveitar dados
+  // anteriores" restores it too — the user shouldn't have to re-inform the logo.
+  const logoName = figmaLogo ? figmaLogo.split('/').pop() : '';
+  const logoAsset = logoName ? figmaAssets.get(logoName) : null;
   return {
     projName: ui.projName.value,
     projDesc: ui.projDesc.value,
+    figmaLogo: figmaLogo || '',
+    figmaLogoAsset: logoAsset && logoAsset.base64
+      ? { name: logoName, base64: logoAsset.base64, contentType: logoAsset.contentType || '' }
+      : null,
     outputMode,
     provider: ui.provider.value,
     openaiBaseUrl: el('openaiBaseUrl').value,
@@ -1469,6 +1477,18 @@ function applyInputs(saved) {
   if (!saved) return;
   ui.projName.value = saved.projName || '';
   ui.projDesc.value = saved.projDesc || '';
+  // Restore the previously-detected logo (path + bytes) so the review step shows
+  // it and generation references it — without re-running Figma extraction.
+  if (saved.figmaLogo) {
+    figmaLogo = saved.figmaLogo;
+    requestDirty = true;
+    if (saved.figmaLogoAsset && saved.figmaLogoAsset.base64) {
+      figmaAssets.set(saved.figmaLogoAsset.name, {
+        base64: saved.figmaLogoAsset.base64,
+        contentType: saved.figmaLogoAsset.contentType || '',
+      });
+    }
+  }
   setOutputMode(saved.outputMode === 'starter-kit' ? 'starter-kit' : 'template');
   ui.provider.value = saved.provider || '';
   el('openaiBaseUrl').value = saved.openaiBaseUrl || '';
