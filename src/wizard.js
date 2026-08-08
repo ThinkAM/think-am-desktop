@@ -106,7 +106,7 @@ let outputMode = 'template';
 // Review step: what the AI understood (flow + colors), EDITABLE by the user
 // before generation. On confirm these override the server's own inference so a
 // correction here actually sticks (instead of being re-guessed each run).
-const reviewState = { flow: null, colors: [], drawio: '', svg: '' };
+const reviewState = { flow: null, colors: [], drawio: '', svg: '', kpis: [] };
 let reviewWired = false;
 let routeCandidates = []; // { id, name, route, included }
 let jobTimer = null;
@@ -975,6 +975,54 @@ function renderReviewFlow() {
   host.innerHTML = reviewState.svg || '<span class="muted">Sem fluxo para exibir.</span>';
 }
 
+// Editable KPI list: label + type (total/count/rate) + status (for 'count').
+function renderReviewKpis() {
+  const host = el('review-kpis');
+  host.innerHTML = '';
+  const stateOpts = ((reviewState.flow && reviewState.flow.states) || [])
+    .map((s) => ({ key: s.key, label: s.label || s.key }));
+  reviewState.kpis.forEach((kpi, i) => {
+    const row = document.createElement('div');
+    row.className = 'review-kpi';
+
+    const label = document.createElement('input');
+    label.className = 'review-kpi-label';
+    label.value = kpi.label || '';
+    label.placeholder = 'Rótulo do indicador';
+    label.addEventListener('input', () => { reviewState.kpis[i].label = label.value; });
+
+    const type = document.createElement('select');
+    [['total', 'Total'], ['count', 'Contagem por status'], ['rate', 'Taxa de aprovação']].forEach(([v, t]) => {
+      const o = document.createElement('option'); o.value = v; o.textContent = t;
+      if (kpi.type === v) o.selected = true; type.appendChild(o);
+    });
+
+    const status = document.createElement('select');
+    const rebuildStatus = () => {
+      status.innerHTML = '';
+      stateOpts.forEach((s) => {
+        const o = document.createElement('option'); o.value = s.key; o.textContent = s.label;
+        if (kpi.status === s.key) o.selected = true; status.appendChild(o);
+      });
+      status.style.display = reviewState.kpis[i].type === 'count' ? '' : 'none';
+    };
+    status.addEventListener('change', () => { reviewState.kpis[i].status = status.value; });
+    type.addEventListener('change', () => {
+      reviewState.kpis[i].type = type.value;
+      if (type.value === 'count' && !reviewState.kpis[i].status && stateOpts[0]) reviewState.kpis[i].status = stateOpts[0].key;
+      rebuildStatus();
+    });
+    rebuildStatus();
+
+    const del = document.createElement('button');
+    del.className = 'review-del'; del.type = 'button'; del.title = 'Remover'; del.textContent = '✕';
+    del.addEventListener('click', () => { reviewState.kpis.splice(i, 1); renderReviewKpis(); });
+
+    row.append(label, type, status, del);
+    host.appendChild(row);
+  });
+}
+
 // Lets the user pick a new logo image (in-renderer, no IPC): re-bundles it under
 // the SAME stable path so generation references the corrected logo.
 function pickNewLogo() {
@@ -1035,8 +1083,12 @@ function applyInferResult(r) {
   const palette = r.palette || {};
   const colors = Array.isArray(palette) ? palette : (palette.colors || [palette.primary, palette.secondary].filter(Boolean));
   reviewState.colors = (colors || []).filter((c) => /^#[0-9a-fA-F]{6}$/.test(String(c)));
+  reviewState.kpis = Array.isArray(r.kpis)
+    ? r.kpis.map((k) => ({ label: String(k.label || ''), type: k.type || 'count', status: k.status || '' }))
+    : [];
   renderReviewFlow();
   renderReviewColors();
+  renderReviewKpis();
   renderReviewLogo();
 }
 
@@ -1045,6 +1097,11 @@ function wireReview() {
   reviewWired = true;
   el('review-logo-btn').addEventListener('click', pickNewLogo);
   el('review-color-add').addEventListener('click', () => { reviewState.colors.push('#0f766e'); renderReviewColors(); });
+  el('review-kpi-add').addEventListener('click', () => {
+    const firstState = (reviewState.flow && reviewState.flow.states && reviewState.flow.states[0]) || null;
+    reviewState.kpis.push({ label: 'Novo indicador', type: 'count', status: firstState ? firstState.key : '' });
+    renderReviewKpis();
+  });
   el('review-flow-drawio').addEventListener('click', async () => {
     if (!reviewState.drawio) return;
     await api.genSaveText(reviewState.drawio, `${(ui.projName.value.trim() || 'fluxo')}.drawio`);
@@ -1094,7 +1151,7 @@ async function enterReview() {
   if (rebuilt || !reviewState.flow) {
     await loadReview();
   } else {
-    renderReviewLogo(); renderReviewColors(); renderReviewFlow();
+    renderReviewLogo(); renderReviewColors(); renderReviewFlow(); renderReviewKpis();
   }
 }
 
@@ -1347,6 +1404,7 @@ async function generate() {
   // (server uses the confirmed flow verbatim + these brand colors).
   if (reviewState.flow) pendingRequest.processFlow = reviewState.flow;
   if (reviewState.colors.length) pendingRequest.colors = reviewState.colors;
+  if (reviewState.kpis.length) pendingRequest.kpis = reviewState.kpis.filter((k) => (k.label || '').trim());
   pendingRequest.figmaLogo = figmaLogo || null; // may have been replaced in review
   if (!lastSaveDir) {
     // Shouldn't normally happen — Step 1 already requires this before you can

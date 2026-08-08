@@ -197,6 +197,11 @@ select option { background: var(--navy-800); }
 .review-flow { overflow-x: auto; border-radius: 10px; background: #fff; padding: 8px; }
 .review-flow svg { display: block; }
 .review-flow-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.review-kpis { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.review-kpi { display: flex; align-items: center; gap: 8px; }
+.review-kpi input.review-kpi-label { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.3); background: rgba(2,8,23,0.35); color: inherit; font-size: 13px; }
+.review-kpi select { padding: 7px 8px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.3); background: rgba(2,8,23,0.35); color: inherit; font-size: 12px; }
+.review-kpi .review-del { cursor: pointer; color: var(--slate-400); font-size: 14px; background: none; border: none; }
 
 .files {
   padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.5;
